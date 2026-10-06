@@ -286,6 +286,8 @@ export const App: React.FC = () => {
     setGameStatus('waiting');
 
     try {
+      peerService.onMessage = handleNetworkMessage;
+
       const code = await peerService.createRoom();
       setRoomCode(code);
       setWaitingStatusText('Room active! Waiting for Player 2 to enter code or join link...');
@@ -304,7 +306,6 @@ export const App: React.FC = () => {
         setGameStatus('playing');
       };
 
-      peerService.onMessage = handleNetworkMessage;
       peerService.onError = (err) => {
         setWaitingStatusText(`Connection notice: ${err.message}`);
       };
@@ -337,24 +338,23 @@ export const App: React.FC = () => {
     setGameStatus('waiting');
 
     try {
-      await peerService.joinRoom(code);
-      setWaitingStatusText('Connected to Host! Synchronizing dungeon...');
+      peerService.onMessage = handleNetworkMessage;
 
       const p1Ghosts = createInitialOpponentGhosts('p1');
       const initialBoard = [...p2Ghosts, ...p1Ghosts];
       setGhosts(initialBoard);
       ghostsRef.current = initialBoard;
 
-      peerService.onPeerJoined = () => {
-        soundManager.playTurnAlert();
-        peerService.sendMessage({
-          type: 'SYNC_SETUP',
-          ghosts: p2Ghosts.map((g) => ({ id: g.id, x: g.x, y: g.y })),
-        });
-        setGameStatus('playing');
-      };
+      await peerService.joinRoom(code);
+      setWaitingStatusText('Connected to Host! Synchronizing dungeon...');
 
-      peerService.onMessage = handleNetworkMessage;
+      // Connection is open! Immediately send our setup and enter playing!
+      soundManager.playTurnAlert();
+      peerService.sendMessage({
+        type: 'SYNC_SETUP',
+        ghosts: p2Ghosts.map((g) => ({ id: g.id, x: g.x, y: g.y })),
+      });
+      setGameStatus('playing');
     } catch (err: unknown) {
       console.error(err);
       alert((err as Error).message || 'Failed to connect to room.');
@@ -379,6 +379,14 @@ export const App: React.FC = () => {
         setGhosts(syncedBoard);
         ghostsRef.current = syncedBoard;
         setGameStatus('playing');
+
+        // If I am Host and I received SYNC_SETUP from Guest, ensure my setup is sent too
+        if (localPlayer === 'p1') {
+          peerService.sendMessage({
+            type: 'SYNC_SETUP',
+            ghosts: mySecretGhostsRef.current.map((g) => ({ id: g.id, x: g.x, y: g.y })),
+          });
+        }
       } else if (msg.type === 'MOVE') {
         const invX = 5 - msg.toX;
         const invY = 5 - msg.toY;

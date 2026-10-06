@@ -13,6 +13,7 @@ const ICE_SERVERS = [
 export class PeerService {
   private peer: Peer | null = null;
   private connection: DataConnection | null = null;
+  private pendingQueue: NetworkMessage[] = [];
   public roomCode: string = '';
   public isHost: boolean = false;
 
@@ -22,9 +23,8 @@ export class PeerService {
   public onDisconnected?: () => void;
   public onError?: (err: Error) => void;
 
-  // Generates 4-character uppercase alphanumeric room code like 'A7K9'
   public static generateRoomCode(): string {
-    const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ'; // omit ambiguous 0/O, 1/I
+    const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
     let code = '';
     for (let i = 0; i < 4; i++) {
       code += chars.charAt(Math.floor(Math.random() * chars.length));
@@ -63,12 +63,20 @@ export class PeerService {
         peer.on('connection', (conn) => {
           this.connection = conn;
           this.setupConnectionHandlers(conn);
-          this.onPeerJoined?.();
+
+          if (conn.open) {
+            this.flushQueue();
+            this.onPeerJoined?.();
+          } else {
+            conn.on('open', () => {
+              this.flushQueue();
+              this.onPeerJoined?.();
+            });
+          }
         });
 
         peer.on('error', (err) => {
           console.error('[PeerJS Host Error]', err);
-          // If code is already taken, try a fresh random code
           if ((err as { type?: string }).type === 'unavailable-id') {
             const nextCode = PeerService.generateRoomCode();
             this.createRoom(nextCode).then(resolve).catch(reject);
@@ -120,11 +128,11 @@ export class PeerService {
 
           conn.on('open', () => {
             joined = true;
+            this.flushQueue();
             this.onPeerJoined?.();
             resolve();
           });
 
-          // Timeout if host is not reachable within 12 seconds
           setTimeout(() => {
             if (!joined && (!this.connection || !this.connection.open)) {
               reject(new Error('Connection timed out. Host room code might be incorrect or offline.'));
@@ -166,11 +174,32 @@ export class PeerService {
     });
   }
 
+  private flushQueue() {
+    if (this.connection && this.connection.open && this.pendingQueue.length > 0) {
+      while (this.pendingQueue.length > 0) {
+        const msg = this.pendingQueue.shift();
+        if (msg) {
+          try {
+            this.connection.send(msg);
+          } catch (e) {
+            console.error('Failed to send queued message', e);
+          }
+        }
+      }
+    }
+  }
+
   public sendMessage(msg: NetworkMessage) {
     if (this.connection && this.connection.open) {
-      this.connection.send(msg);
+      try {
+        this.connection.send(msg);
+      } catch (e) {
+        console.error('Error sending message, queuing:', e);
+        this.pendingQueue.push(msg);
+      }
     } else {
-      console.warn('Cannot send message, connection is not open');
+      // Queue message to be sent as soon as DataChannel finishes opening!
+      this.pendingQueue.push(msg);
     }
   }
 
@@ -179,6 +208,7 @@ export class PeerService {
   }
 
   public disconnect() {
+    this.pendingQueue = [];
     if (this.connection) {
       try {
         this.connection.close();
