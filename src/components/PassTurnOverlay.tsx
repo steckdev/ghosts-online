@@ -4,6 +4,8 @@ import { soundManager } from '../audio/soundEffects';
 
 interface PassTurnOverlayProps {
   nextPlayer: 'p1' | 'p2';
+  customTitle?: string;
+  customSubtitle?: string;
   lastCapturedInfo?: {
     color: 'blue' | 'red';
     capturer: 'p1' | 'p2';
@@ -13,6 +15,8 @@ interface PassTurnOverlayProps {
 
 export const PassTurnOverlay: React.FC<PassTurnOverlayProps> = ({
   nextPlayer,
+  customTitle,
+  customSubtitle,
   lastCapturedInfo,
   onUnlocked,
 }) => {
@@ -48,11 +52,17 @@ export const PassTurnOverlay: React.FC<PassTurnOverlayProps> = ({
         {/* Big Alert Header */}
         <div className="pass-header">
           <ShieldAlert size={36} className="pass-shield-icon" />
-          <h2 className="pass-title">PASS THE DEVICE</h2>
+          <h2 className="pass-title">{customTitle || 'PASS THE DEVICE'}</h2>
           <div className="next-player-badge">
             HAND TO <strong>{playerName}</strong>
           </div>
         </div>
+
+        {customSubtitle && (
+          <div className="pass-custom-subtitle">
+            {customSubtitle}
+          </div>
+        )}
 
         {/* Capture Announcement if a capture just took place */}
         {lastCapturedInfo && (

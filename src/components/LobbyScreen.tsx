@@ -3,6 +3,7 @@ import type { GameMode, Ghost } from '../types/game';
 import { Users, Bot, Smartphone, Shuffle, Play, ArrowRight, Sparkles, PlusCircle, LogIn } from 'lucide-react';
 import { GhostPiece } from './GhostPiece';
 import { soundManager } from '../audio/soundEffects';
+import { shuffleGhostColors } from '../utils/ghostUtils';
 
 interface LobbyScreenProps {
   onStartAI: (initialGhosts: Ghost[]) => void;
@@ -30,19 +31,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   // Quick shuffle player's 4 blue and 4 red ghost positions
   const handleShuffle = () => {
     soundManager.playSelect();
-    const colors: ('blue' | 'red')[] = [
-      'blue', 'blue', 'blue', 'blue',
-      'red', 'red', 'red', 'red'
-    ];
-    for (let i = colors.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [colors[i], colors[j]] = [colors[j], colors[i]];
-    }
-
-    const shuffled = ghosts.map((g, idx) => ({
-      ...g,
-      color: colors[idx],
-    }));
+    const shuffled = shuffleGhostColors(ghosts);
     setGhosts(shuffled);
   };
 

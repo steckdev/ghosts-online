@@ -17,48 +17,16 @@ import { LobbyScreen } from './components/LobbyScreen';
 import { WaitingRoom } from './components/WaitingRoom';
 import { PassTurnOverlay } from './components/PassTurnOverlay';
 import { DungeonDecorations } from './components/DungeonDecorations';
+import { PassAndPlaySetupModal } from './components/PassAndPlaySetupModal';
 import { peerService } from './services/peerService';
 import { getValidMovesForGhost, calculateAIMove } from './services/aiService';
 import { soundManager } from './audio/soundEffects';
+import {
+  createInitialGhosts,
+  createInitialOpponentGhosts,
+  shuffleGhostColors,
+} from './utils/ghostUtils';
 import './App.css';
-
-// Default 8 ghosts for starting player (4 blue, 4 red)
-function createInitialGhosts(owner: PlayerRole): Ghost[] {
-  const defaultLayout: { x: number; y: number; color: 'blue' | 'red' }[] = [
-    { x: 1, y: 0, color: 'blue' },
-    { x: 2, y: 0, color: 'red' },
-    { x: 3, y: 0, color: 'red' },
-    { x: 4, y: 0, color: 'blue' },
-    { x: 1, y: 1, color: 'red' },
-    { x: 2, y: 1, color: 'blue' },
-    { x: 3, y: 1, color: 'blue' },
-    { x: 4, y: 1, color: 'red' },
-  ];
-
-  return defaultLayout.map((slot, idx) => ({
-    id: `${owner}-ghost-${idx}`,
-    owner,
-    color: slot.color,
-    x: slot.x,
-    y: slot.y,
-  }));
-}
-
-// Create initial opponent ghosts with hidden color
-function createInitialOpponentGhosts(owner: PlayerRole): Ghost[] {
-  const slots = [
-    { x: 1, y: 5 }, { x: 2, y: 5 }, { x: 3, y: 5 }, { x: 4, y: 5 },
-    { x: 1, y: 4 }, { x: 2, y: 4 }, { x: 3, y: 4 }, { x: 4, y: 4 },
-  ];
-
-  return slots.map((slot, idx) => ({
-    id: `${owner}-ghost-${idx}`,
-    owner,
-    color: 'unknown' as const,
-    x: slot.x,
-    y: slot.y,
-  }));
-}
 
 export const App: React.FC = () => {
   // Game states
@@ -70,9 +38,15 @@ export const App: React.FC = () => {
   const [winner, setWinner] = useState<PlayerRole | undefined>(undefined);
   const [winReason, setWinReason] = useState<WinReason | undefined>(undefined);
 
-  // Pass & Play Privacy Shield State
+  // Pass & Play Privacy Shield & Setup State
   const [isPassShieldActive, setIsPassShieldActive] = useState<boolean>(false);
   const [pendingNextPlayer, setPendingNextPlayer] = useState<PlayerRole>('p2');
+  const [isP2SetupModalOpen, setIsP2SetupModalOpen] = useState(false);
+  const [p2SetupInitialGhosts, setP2SetupInitialGhosts] = useState<Ghost[]>([]);
+  const [passShieldCustomTitle, setPassShieldCustomTitle] = useState<string | undefined>(undefined);
+  const [passShieldCustomSubtitle, setPassShieldCustomSubtitle] = useState<string | undefined>(undefined);
+  const p1SavedGhostsRef = useRef<Ghost[]>([]);
+  const onShieldUnlockedCallbackRef = useRef<(() => void) | null>(null);
   const [lastCapturedInfo, setLastCapturedInfo] = useState<{ color: 'blue' | 'red'; capturer: PlayerRole } | undefined>(undefined);
 
   // Ghosts on the board
@@ -240,37 +214,65 @@ export const App: React.FC = () => {
     setLastMove(undefined);
     setSelectedGhostId(null);
     setValidMoves([]);
-    setIsPassShieldActive(false);
 
     // Player 1's starting arrangement
     const p1Ghosts = initialGhosts.map((g) => ({ ...g, owner: 'p1' as const }));
+    p1SavedGhostsRef.current = p1Ghosts;
+    setMySecretGhosts(p1Ghosts);
+    mySecretGhostsRef.current = p1Ghosts;
 
-    // Player 2's starting arrangement (secret 4 blue + 4 red)
-    const p2Colors: ('blue' | 'red')[] = ['blue', 'blue', 'blue', 'blue', 'red', 'red', 'red', 'red'];
-    for (let i = p2Colors.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [p2Colors[i], p2Colors[j]] = [p2Colors[j], p2Colors[i]];
-    }
-
-    const p2Ghosts: Ghost[] = [];
-    const slots = [
-      { x: 1, y: 5 }, { x: 2, y: 5 }, { x: 3, y: 5 }, { x: 4, y: 5 },
-      { x: 1, y: 4 }, { x: 2, y: 4 }, { x: 3, y: 4 }, { x: 4, y: 4 },
+    // Player 2's starting ghosts layout (4 blue, 4 red)
+    const defaultP2Ghosts: Ghost[] = [
+      { id: 'p2-ghost-0', owner: 'p2', color: 'blue', x: 1, y: 5 },
+      { id: 'p2-ghost-1', owner: 'p2', color: 'red', x: 2, y: 5 },
+      { id: 'p2-ghost-2', owner: 'p2', color: 'red', x: 3, y: 5 },
+      { id: 'p2-ghost-3', owner: 'p2', color: 'blue', x: 4, y: 5 },
+      { id: 'p2-ghost-4', owner: 'p2', color: 'red', x: 1, y: 4 },
+      { id: 'p2-ghost-5', owner: 'p2', color: 'blue', x: 2, y: 4 },
+      { id: 'p2-ghost-6', owner: 'p2', color: 'blue', x: 3, y: 4 },
+      { id: 'p2-ghost-7', owner: 'p2', color: 'red', x: 4, y: 4 },
     ];
-    slots.forEach((slot, idx) => {
-      p2Ghosts.push({
-        id: `p2-ghost-${idx}`,
-        owner: 'p2',
-        color: p2Colors[idx],
-        x: slot.x,
-        y: slot.y,
-      });
-    });
+    setP2SetupInitialGhosts(defaultP2Ghosts);
 
-    const initialBoard = [...p1Ghosts, ...p2Ghosts];
+    const initialBoard = [...p1Ghosts, ...defaultP2Ghosts];
     setGhosts(initialBoard);
     ghostsRef.current = initialBoard;
+
+    // Show privacy shield instructing to hand to Player 2
+    setPendingNextPlayer('p2');
+    setPassShieldCustomTitle('SETUP PHASE: PASS TO PLAYER 2');
+    setPassShieldCustomSubtitle('Hand device to Player 2 to arrange their secret ghosts!');
+    onShieldUnlockedCallbackRef.current = () => {
+      setIsP2SetupModalOpen(true);
+    };
+    setIsPassShieldActive(true);
     setGameStatus('playing');
+  };
+
+  const handleConfirmP2Setup = (p2FinalGhosts: Ghost[]) => {
+    setIsP2SetupModalOpen(false);
+    const p1Ghosts = p1SavedGhostsRef.current;
+    const initialBoard = [...p1Ghosts, ...p2FinalGhosts];
+    setGhosts(initialBoard);
+    ghostsRef.current = initialBoard;
+
+    // Hand back to Player 1 for first move
+    setPendingNextPlayer('p1');
+    setPassShieldCustomTitle('READY TO PLAY! PASS TO PLAYER 1');
+    setPassShieldCustomSubtitle('Player 1 takes the first move! Tap 3 times to reveal board.');
+    onShieldUnlockedCallbackRef.current = null;
+    setIsPassShieldActive(true);
+  };
+
+  const handleShuffleWaitingGhosts = () => {
+    soundManager.playSelect();
+    const shuffled = shuffleGhostColors(mySecretGhostsRef.current);
+    setMySecretGhosts(shuffled);
+    mySecretGhostsRef.current = shuffled;
+    const oppPieces = createInitialOpponentGhosts('p2');
+    const updatedBoard = [...shuffled, ...oppPieces];
+    setGhosts(updatedBoard);
+    ghostsRef.current = updatedBoard;
   };
 
   // Host Online Room
@@ -704,6 +706,16 @@ export const App: React.FC = () => {
   // Unlock callback when next player taps 3 times
   const handlePassShieldUnlocked = () => {
     setIsPassShieldActive(false);
+    setPassShieldCustomTitle(undefined);
+    setPassShieldCustomSubtitle(undefined);
+
+    if (onShieldUnlockedCallbackRef.current) {
+      const cb = onShieldUnlockedCallbackRef.current;
+      onShieldUnlockedCallbackRef.current = null;
+      cb();
+      return;
+    }
+
     setTurn(pendingNextPlayer);
     setLocalPlayer(pendingNextPlayer);
     setTurnNumber((t) => t + 1);
@@ -844,13 +856,21 @@ export const App: React.FC = () => {
     setSelectedGhostId(null);
     setValidMoves([]);
     setIsPassShieldActive(false);
+    setIsP2SetupModalOpen(false);
+    setPassShieldCustomTitle(undefined);
+    setPassShieldCustomSubtitle(undefined);
+    onShieldUnlockedCallbackRef.current = null;
   };
 
   const handleRematch = () => {
     if (gameMode === 'ai') {
-      handleStartAI(mySecretGhostsRef.current);
+      const nextP1 = shuffleGhostColors(mySecretGhostsRef.current);
+      handleStartAI(nextP1);
     } else if (gameMode === 'pass-and-play') {
-      handleStartPassAndPlay(mySecretGhostsRef.current);
+      const nextP1 = shuffleGhostColors(
+        p1SavedGhostsRef.current.length > 0 ? p1SavedGhostsRef.current : mySecretGhostsRef.current
+      );
+      handleStartPassAndPlay(nextP1);
     } else if (gameMode === 'online' && peerService.isConnected()) {
       handleResetForRematch();
       peerService.sendMessage({ type: 'REMATCH_REQUEST' });
@@ -894,6 +914,7 @@ export const App: React.FC = () => {
           isHost={isHost}
           myGhosts={mySecretGhosts}
           statusText={waitingStatusText}
+          onShuffle={isHost ? handleShuffleWaitingGhosts : undefined}
           onCancel={handleResetGame}
         />
       )}
@@ -956,8 +977,18 @@ export const App: React.FC = () => {
         <PassTurnOverlay
           key={`pass-${pendingNextPlayer}-${turnNumber}`}
           nextPlayer={pendingNextPlayer}
+          customTitle={passShieldCustomTitle}
+          customSubtitle={passShieldCustomSubtitle}
           lastCapturedInfo={lastCapturedInfo}
           onUnlocked={handlePassShieldUnlocked}
+        />
+      )}
+
+      {/* Player 2 Secret Setup Modal for Pass & Play */}
+      {isP2SetupModalOpen && (
+        <PassAndPlaySetupModal
+          initialGhosts={p2SetupInitialGhosts}
+          onConfirm={handleConfirmP2Setup}
         />
       )}
 

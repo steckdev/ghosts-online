@@ -2003,5 +2003,87 @@
   100% { transform: scale(0.9, 0.95) skewX(-3deg); opacity: 0.8; }
 }
 
+/* Waiting Room Shuffle Header */
+.preview-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  max-width: 220px;
+  margin-bottom: 0.3rem;
+}
+
+.shuffle-mini-btn {
+  background: rgba(56, 189, 248, 0.15);
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  color: #38bdf8;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.shuffle-mini-btn:hover {
+  background: rgba(56, 189, 248, 0.25);
+  transform: translateY(-1px);
+}
+
+/* Custom Pass Turn Subtitle */
+.pass-custom-subtitle {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #ffeb3b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-top: 0.3rem;
+  text-shadow: 0 0 8px rgba(255, 235, 59, 0.6);
+}
+
+/* Pass and Play Setup Modal */
+.setup-modal-backdrop {
+  z-index: 1000;
+}
+
+.setup-modal-card {
+  background: #0f141f;
+  border: 2px solid var(--neon-purple);
+  box-shadow: 0 0 30px rgba(176, 0, 255, 0.35);
+  border-radius: 14px;
+  padding: 1.5rem 1.2rem;
+  width: 92%;
+  max-width: 440px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.8rem;
+  animation: modalEnter 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.p2-badge {
+  background: rgba(176, 0, 255, 0.2);
+  border: 1px solid var(--neon-purple);
+  color: #d8b4fe;
+  font-size: 0.75rem;
+  font-weight: 800;
+  padding: 0.25rem 0.6rem;
+  border-radius: 6px;
+}
+
+.setup-modal-title {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #f8fafc;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  text-align: center;
+}
+
+
 
 

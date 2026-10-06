@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Copy, Check, ExternalLink, ArrowLeft, Loader2, Radio } from 'lucide-react';
+import { Copy, Check, ExternalLink, ArrowLeft, Loader2, Radio, Shuffle } from 'lucide-react';
 import { GhostPiece } from './GhostPiece';
 import type { Ghost } from '../types/game';
 
@@ -8,6 +8,7 @@ interface WaitingRoomProps {
   isHost: boolean;
   myGhosts: Ghost[];
   statusText?: string;
+  onShuffle?: () => void;
   onCancel: () => void;
 }
 
@@ -16,6 +17,7 @@ export const WaitingRoom: React.FC<WaitingRoomProps> = ({
   isHost,
   myGhosts,
   statusText = 'Waiting for Player 2 to connect...',
+  onShuffle,
   onCancel,
 }) => {
   const [copied, setCopied] = useState(false);
@@ -75,7 +77,15 @@ export const WaitingRoom: React.FC<WaitingRoomProps> = ({
 
         {/* Preview of your secret layout */}
         <div className="waiting-layout-preview">
-          <span className="preview-label">Your Secret Starting Setup:</span>
+          <div className="preview-header-row">
+            <span className="preview-label">Your Secret Starting Setup:</span>
+            {onShuffle && (
+              <button className="shuffle-mini-btn" onClick={onShuffle} title="Reshuffle starting pieces">
+                <Shuffle size={10} />
+                <span>Shuffle</span>
+              </button>
+            )}
+          </div>
           <div className="mini-preview-row">
             {myGhosts.slice(0, 4).map((g) => (
               <GhostPiece key={g.id} color={g.color} size={36} />
