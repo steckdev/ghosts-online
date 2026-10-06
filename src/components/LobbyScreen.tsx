@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { GameMode, Ghost } from '../types/game';
-import { Users, Bot, Smartphone, Shuffle, Play, ArrowRight, Sparkles } from 'lucide-react';
+import { Users, Bot, Smartphone, Shuffle, Play, ArrowRight, Sparkles, PlusCircle, LogIn } from 'lucide-react';
 import { GhostPiece } from './GhostPiece';
 import { soundManager } from '../audio/soundEffects';
 
@@ -10,6 +10,7 @@ interface LobbyScreenProps {
   onCreateOnlineRoom: (initialGhosts: Ghost[]) => void;
   onJoinOnlineRoom: (code: string, initialGhosts: Ghost[]) => void;
   defaultGhosts: Ghost[];
+  prefilledRoomCode?: string;
 }
 
 export const LobbyScreen: React.FC<LobbyScreenProps> = ({
@@ -18,11 +19,21 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   onCreateOnlineRoom,
   onJoinOnlineRoom,
   defaultGhosts,
+  prefilledRoomCode = '',
 }) => {
-  const [selectedMode, setSelectedMode] = useState<GameMode>('ai');
-  const [joinCode, setJoinCode] = useState('');
+  const [selectedMode, setSelectedMode] = useState<GameMode>(prefilledRoomCode ? 'online' : 'ai');
+  const [onlineAction, setOnlineAction] = useState<'create' | 'join'>(prefilledRoomCode ? 'join' : 'create');
+  const [joinCode, setJoinCode] = useState(prefilledRoomCode);
   const [ghosts, setGhosts] = useState<Ghost[]>(defaultGhosts);
   const [selectedSwapId, setSelectedSwapId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (prefilledRoomCode) {
+      setSelectedMode('online');
+      setOnlineAction('join');
+      setJoinCode(prefilledRoomCode.toUpperCase());
+    }
+  }, [prefilledRoomCode]);
 
   // Quick shuffle player's 4 blue and 4 red ghost positions
   const handleShuffle = () => {
@@ -31,7 +42,6 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
       'blue', 'blue', 'blue', 'blue',
       'red', 'red', 'red', 'red'
     ];
-    // Fisher-Yates shuffle
     for (let i = colors.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [colors[i], colors[j]] = [colors[j], colors[i]];
@@ -52,7 +62,6 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
     } else if (selectedSwapId === ghost.id) {
       setSelectedSwapId(null);
     } else {
-      // Swap positions
       const g1 = ghosts.find((g) => g.id === selectedSwapId);
       const g2 = ghost;
       if (g1 && g2) {
@@ -74,7 +83,11 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
     } else if (selectedMode === 'pass-and-play') {
       onStartPassAndPlay(ghosts);
     } else if (selectedMode === 'online') {
-      if (joinCode.trim()) {
+      if (onlineAction === 'join') {
+        if (!joinCode.trim()) {
+          alert('Please enter a 4-letter room code to join!');
+          return;
+        }
         onJoinOnlineRoom(joinCode.trim(), ghosts);
       } else {
         onCreateOnlineRoom(ghosts);
@@ -181,27 +194,54 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
               </div>
               <div className="mode-details">
                 <h3>Online P2P Multiplayer</h3>
-                <p>Direct WebRTC connection between two phones or browsers.</p>
+                <p>Direct WebRTC peer connection between two phones or browsers.</p>
               </div>
               <div className="mode-radio" />
             </div>
 
-            {/* Online code inputs if online is selected */}
+            {/* Online Options sub-panel */}
             {selectedMode === 'online' && (
               <div className="online-options-panel">
-                <div className="join-code-row">
-                  <input
-                    type="text"
-                    maxLength={6}
-                    placeholder="ENTER 4-LETTER CODE"
-                    value={joinCode}
-                    onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
-                    className="room-input"
-                  />
+                <div className="online-tabs">
+                  <button
+                    type="button"
+                    className={`online-tab-btn ${onlineAction === 'create' ? 'active' : ''}`}
+                    onClick={() => setOnlineAction('create')}
+                  >
+                    <PlusCircle size={15} />
+                    <span>Host a Room</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`online-tab-btn ${onlineAction === 'join' ? 'active' : ''}`}
+                    onClick={() => setOnlineAction('join')}
+                  >
+                    <LogIn size={15} />
+                    <span>Join with Code</span>
+                  </button>
                 </div>
-                <div className="online-help-note">
-                  Leave blank to CREATE a new room, or enter a friend's room code to JOIN!
-                </div>
+
+                {onlineAction === 'create' ? (
+                  <div className="create-room-info">
+                    <p className="online-info-text">
+                      Click below to generate a unique 4-letter Room Code. A link will be ready to copy and share with Player 2!
+                    </p>
+                  </div>
+                ) : (
+                  <div className="join-room-info">
+                    <input
+                      type="text"
+                      maxLength={6}
+                      placeholder="ENTER 4-LETTER CODE"
+                      value={joinCode}
+                      onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+                      className="room-input"
+                    />
+                    <p className="online-info-text">
+                      Enter the 4-letter code provided by the Host player.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
 
@@ -226,9 +266,9 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
             <Play size={20} />
             <span>
               {selectedMode === 'online'
-                ? joinCode.trim()
-                  ? 'Join Room & Play'
-                  : 'Create Room & Play'
+                ? onlineAction === 'create'
+                  ? 'Generate Room & Host →'
+                  : 'Connect & Join Room →'
                 : 'Enter the Dungeon!'}
             </span>
             <ArrowRight size={18} />

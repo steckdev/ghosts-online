@@ -2,7 +2,13 @@ import Peer, { type DataConnection } from 'peerjs';
 import type { NetworkMessage } from '../types/game';
 
 // Prefix to avoid collisions on free PeerJS public broker
-const PEER_PREFIX = 'ghosts-80s-';
+const PEER_PREFIX = 'ghosts80s-';
+
+const ICE_SERVERS = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+  { urls: 'stun:stun2.l.google.com:19302' },
+];
 
 export class PeerService {
   private peer: Peer | null = null;
@@ -27,39 +33,54 @@ export class PeerService {
   }
 
   // Initialize as Host (Player 1)
-  public createRoom(code?: string): Promise<string> {
+  public createRoom(requestedCode?: string): Promise<string> {
     return new Promise((resolve, reject) => {
       this.disconnect();
       this.isHost = true;
-      const roomCode = (code || PeerService.generateRoomCode()).toUpperCase();
+      const roomCode = (requestedCode || PeerService.generateRoomCode()).toUpperCase();
       this.roomCode = roomCode;
       const peerId = `${PEER_PREFIX}${roomCode}`;
 
       try {
-        this.peer = new Peer(peerId, {
+        const peer = new Peer(peerId, {
           debug: 1,
+          config: {
+            iceServers: ICE_SERVERS,
+          },
         });
+        this.peer = peer;
 
-        this.peer.on('open', (id) => {
+        let opened = false;
+
+        peer.on('open', (id) => {
+          opened = true;
           const cleanCode = id.replace(PEER_PREFIX, '');
           this.roomCode = cleanCode;
           this.onConnected?.(cleanCode);
           resolve(cleanCode);
         });
 
-        this.peer.on('connection', (conn) => {
+        peer.on('connection', (conn) => {
           this.connection = conn;
           this.setupConnectionHandlers(conn);
           this.onPeerJoined?.();
         });
 
-        this.peer.on('error', (err) => {
-          console.error('[PeerJS Error]', err);
+        peer.on('error', (err) => {
+          console.error('[PeerJS Host Error]', err);
+          // If code is already taken, try a fresh random code
+          if ((err as { type?: string }).type === 'unavailable-id') {
+            const nextCode = PeerService.generateRoomCode();
+            this.createRoom(nextCode).then(resolve).catch(reject);
+            return;
+          }
           this.onError?.(err);
-          reject(err);
+          if (!opened) {
+            reject(err);
+          }
         });
 
-        this.peer.on('disconnected', () => {
+        peer.on('disconnected', () => {
           this.onDisconnected?.();
         });
       } catch (e) {
@@ -77,15 +98,20 @@ export class PeerService {
       this.roomCode = cleanCode;
 
       try {
-        // Random guest peer ID
-        const guestId = `${PEER_PREFIX}guest-${Math.random().toString(36).substring(2, 8)}`;
-        this.peer = new Peer(guestId, {
+        const guestId = `${PEER_PREFIX}guest-${Math.random().toString(36).substring(2, 9)}`;
+        const peer = new Peer(guestId, {
           debug: 1,
+          config: {
+            iceServers: ICE_SERVERS,
+          },
         });
+        this.peer = peer;
 
-        this.peer.on('open', () => {
+        let joined = false;
+
+        peer.on('open', () => {
           const targetPeerId = `${PEER_PREFIX}${cleanCode}`;
-          const conn = this.peer!.connect(targetPeerId, {
+          const conn = peer.connect(targetPeerId, {
             reliable: true,
           });
 
@@ -93,18 +119,26 @@ export class PeerService {
           this.setupConnectionHandlers(conn);
 
           conn.on('open', () => {
+            joined = true;
             this.onPeerJoined?.();
             resolve();
           });
+
+          // Timeout if host is not reachable within 12 seconds
+          setTimeout(() => {
+            if (!joined && (!this.connection || !this.connection.open)) {
+              reject(new Error('Connection timed out. Host room code might be incorrect or offline.'));
+            }
+          }, 12000);
         });
 
-        this.peer.on('error', (err) => {
+        peer.on('error', (err) => {
           console.error('[PeerJS Join Error]', err);
           this.onError?.(err);
           reject(err);
         });
 
-        this.peer.on('disconnected', () => {
+        peer.on('disconnected', () => {
           this.onDisconnected?.();
         });
       } catch (e) {

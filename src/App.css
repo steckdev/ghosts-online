@@ -1408,3 +1408,213 @@
   background: rgba(51, 65, 85, 0.8);
   color: #fff;
 }
+
+/* =========================================================================
+   WAITING ROOM & ONLINE TABS STYLES
+   ========================================================================= */
+.online-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.online-tab-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.55rem;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(51, 65, 85, 0.5);
+  color: #94a3b8;
+  font-weight: 700;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.online-tab-btn.active {
+  background: rgba(14, 165, 233, 0.2);
+  border-color: var(--neon-blue);
+  color: #38bdf8;
+  box-shadow: 0 0 10px rgba(0, 229, 255, 0.25);
+}
+
+.online-info-text {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  line-height: 1.4;
+  margin-top: 0.35rem;
+}
+
+/* Waiting Room Card */
+.waiting-room-container {
+  width: 100%;
+  max-width: 480px;
+  padding: calc(var(--safe-top) + 1.5rem) 1rem 2rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  z-index: 10;
+}
+
+.waiting-room-card {
+  width: 100%;
+  background: rgba(17, 21, 33, 0.9);
+  border: 2px solid #232c3f;
+  border-radius: 18px;
+  padding: 1.5rem 1.25rem;
+  box-shadow: 0 15px 35px rgba(0, 0, 0, 0.8), 0 0 25px rgba(0, 229, 255, 0.15);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.2rem;
+  text-align: center;
+  backdrop-filter: blur(12px);
+}
+
+.waiting-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: rgba(57, 255, 20, 0.1);
+  border: 1px solid var(--neon-green);
+  color: var(--neon-green);
+  font-family: var(--font-pixel);
+  font-size: 0.58rem;
+  padding: 0.3rem 0.65rem;
+  border-radius: 9999px;
+  letter-spacing: 1px;
+}
+
+.pulse-fast {
+  animation: pulseRadar 1.2s infinite ease-in-out;
+}
+
+@keyframes pulseRadar {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.85); }
+}
+
+.waiting-title {
+  font-family: var(--font-retro);
+  font-size: 2.2rem;
+  letter-spacing: 2px;
+  color: #e0f7fa;
+  text-shadow: 0 0 10px #00e5ff;
+  line-height: 1;
+}
+
+/* Big Glowing Room Code Box */
+.big-room-code-box {
+  background: #090b10;
+  border: 2px solid #1e293b;
+  border-radius: 12px;
+  padding: 0.85rem 1.5rem;
+  width: 100%;
+  max-width: 280px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  box-shadow: inset 0 2px 8px rgba(0,0,0,0.8), 0 0 15px rgba(0, 229, 255, 0.2);
+}
+
+.code-label {
+  font-size: 0.65rem;
+  font-weight: 800;
+  color: #64748b;
+  letter-spacing: 2px;
+}
+
+.code-value-glow {
+  font-family: var(--font-pixel);
+  font-size: 2.4rem;
+  letter-spacing: 6px;
+  color: var(--neon-green);
+  text-shadow: 0 0 8px var(--neon-green), 0 0 16px var(--neon-green);
+}
+
+.waiting-actions {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.copy-large-btn {
+  font-size: 0.95rem;
+}
+
+.test-tab-btn {
+  background: rgba(34, 197, 94, 0.15);
+  border-color: rgba(34, 197, 94, 0.4);
+  color: #4ade80;
+}
+
+.test-tab-btn:hover {
+  background: rgba(34, 197, 94, 0.25);
+  color: #86efac;
+}
+
+.waiting-status-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  color: #94a3b8;
+}
+
+.spinner-icon {
+  animation: spin 1.5s linear infinite;
+  color: var(--neon-blue);
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.waiting-layout-preview {
+  background: #0c0e15;
+  border: 1px solid #1e2433;
+  border-radius: 10px;
+  padding: 0.65rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+}
+
+.preview-label {
+  font-size: 0.68rem;
+  color: #94a3b8;
+  font-weight: 700;
+}
+
+.mini-preview-row {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.cancel-waiting-btn {
+  background: transparent;
+  border: none;
+  color: #64748b;
+  font-size: 0.78rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  padding: 0.3rem;
+  transition: color 0.2s ease;
+}
+
+.cancel-waiting-btn:hover {
+  color: #f1f5f9;
+}
+

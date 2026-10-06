@@ -14,6 +14,7 @@ import { EmoteBar } from './components/EmoteBar';
 import { RulesModal } from './components/RulesModal';
 import { GameOverModal } from './components/GameOverModal';
 import { LobbyScreen } from './components/LobbyScreen';
+import { WaitingRoom } from './components/WaitingRoom';
 import { peerService } from './services/peerService';
 import { getValidMovesForGhost, calculateAIMove } from './services/aiService';
 import { soundManager } from './audio/soundEffects';
@@ -62,7 +63,7 @@ function createInitialOpponentGhosts(owner: PlayerRole): Ghost[] {
 export const App: React.FC = () => {
   // Game states
   const [gameMode, setGameMode] = useState<GameMode>('ai');
-  const [gameStatus, setGameStatus] = useState<'lobby' | 'playing' | 'gameover'>('lobby');
+  const [gameStatus, setGameStatus] = useState<'lobby' | 'waiting' | 'playing' | 'gameover'>('lobby');
   const [localPlayer, setLocalPlayer] = useState<PlayerRole>('p1');
   const [turn, setTurn] = useState<PlayerRole>('p1');
   const [turnNumber, setTurnNumber] = useState<number>(1);
@@ -71,14 +72,24 @@ export const App: React.FC = () => {
 
   // Ghosts on the board
   const [ghosts, setGhosts] = useState<Ghost[]>([]);
+  const ghostsRef = useRef<Ghost[]>([]);
+  ghostsRef.current = ghosts;
+
   // Store true colors of local ghosts (anti-cheating: remote only knows upon capture)
   const [mySecretGhosts, setMySecretGhosts] = useState<Ghost[]>([]);
+  const mySecretGhostsRef = useRef<Ghost[]>([]);
+  mySecretGhostsRef.current = mySecretGhosts;
+
   // In AI mode, we keep AI's secret colors locally
   const aiSecretColorsRef = useRef<Record<string, 'blue' | 'red'>>({});
 
   const [selectedGhostId, setSelectedGhostId] = useState<string | null>(null);
   const [validMoves, setValidMoves] = useState<{ x: number; y: number; isExit?: boolean }[]>([]);
+
+  // Captured ghosts tracking with synchronous Ref to prevent stale closures
   const [capturedGhosts, setCapturedGhosts] = useState<CapturedGhost[]>([]);
+  const capturedGhostsRef = useRef<CapturedGhost[]>([]);
+  capturedGhostsRef.current = capturedGhosts;
 
   const [lastMove, setLastMove] = useState<{
     from: { x: number; y: number };
@@ -90,14 +101,15 @@ export const App: React.FC = () => {
 
   // P2P Online state
   const [roomCode, setRoomCode] = useState<string>('');
+  const [isHost, setIsHost] = useState<boolean>(true);
+  const [waitingStatusText, setWaitingStatusText] = useState<string>('Connecting to signaling network...');
   const [activeEmotes, setActiveEmotes] = useState<{ id: string; emoji: string; sender: 'me' | 'opponent' }[]>([]);
   const [isRulesOpen, setIsRulesOpen] = useState(false);
 
-  // Sound initialization
+  // Sound initialization and URL parameter room check
   useEffect(() => {
     soundManager.initFromStorage();
 
-    // Check if room code was passed in URL query param: ?room=A7K9
     const params = new URLSearchParams(window.location.search);
     const roomParam = params.get('room');
     if (roomParam) {
@@ -105,39 +117,39 @@ export const App: React.FC = () => {
     }
   }, []);
 
-  // Check Win Conditions
+  // Check Win Conditions with exact evaluation
   const checkWinConditions = useCallback(
     (currentCaptured: CapturedGhost[], currentGhosts: Ghost[]): boolean => {
       // 1. Check Blue captures (4 opponent good ghosts captured -> capturer wins)
-      const p1BlueCaptured = currentCaptured.filter((g) => g.owner === 'p2' && g.color === 'blue').length;
-      const p2BlueCaptured = currentCaptured.filter((g) => g.owner === 'p1' && g.color === 'blue').length;
+      const p1CapturedBlueFromP2 = currentCaptured.filter((g) => g.owner === 'p2' && g.color === 'blue').length;
+      const p2CapturedBlueFromP1 = currentCaptured.filter((g) => g.owner === 'p1' && g.color === 'blue').length;
 
-      if (p1BlueCaptured >= 4) {
+      if (p1CapturedBlueFromP2 >= 4) {
         setWinner('p1');
         setWinReason('captured_all_blue');
         setGameStatus('gameover');
         return true;
       }
-      if (p2BlueCaptured >= 4) {
+      if (p2CapturedBlueFromP1 >= 4) {
         setWinner('p2');
         setWinReason('captured_all_blue');
         setGameStatus('gameover');
         return true;
       }
 
-      // 2. Check Red captures (4 bad ghosts captured -> capturer LOSES, owner WINS)
-      const p1RedCaptured = currentCaptured.filter((g) => g.owner === 'p2' && g.color === 'red').length;
-      const p2RedCaptured = currentCaptured.filter((g) => g.owner === 'p1' && g.color === 'red').length;
+      // 2. Check Red captures (4 bad ghosts captured -> capturer loses, owner WINS)
+      const p1CapturedRedFromP2 = currentCaptured.filter((g) => g.owner === 'p2' && g.color === 'red').length;
+      const p2CapturedRedFromP1 = currentCaptured.filter((g) => g.owner === 'p1' && g.color === 'red').length;
 
-      if (p1RedCaptured >= 4) {
-        // P1 captured 4 bad ghosts from P2 -> P2 wins!
+      if (p1CapturedRedFromP2 >= 4) {
+        // P1 mistakenly captured all 4 of P2's red ghosts -> P2 wins!
         setWinner('p2');
         setWinReason('captured_all_red');
         setGameStatus('gameover');
         return true;
       }
-      if (p2RedCaptured >= 4) {
-        // P2 captured 4 bad ghosts from P1 -> P1 wins!
+      if (p2CapturedRedFromP1 >= 4) {
+        // P2 mistakenly captured all 4 of P1's red ghosts -> P1 wins!
         setWinner('p1');
         setWinReason('captured_all_red');
         setGameStatus('gameover');
@@ -165,16 +177,16 @@ export const App: React.FC = () => {
     setTurn('p1');
     setTurnNumber(1);
     setCapturedGhosts([]);
+    capturedGhostsRef.current = [];
     setLastMove(undefined);
     setSelectedGhostId(null);
     setValidMoves([]);
 
-    // Initialize player's chosen ghosts at bottom (y=0,1)
     const p1Ghosts = initialGhosts.map((g) => ({ ...g, owner: 'p1' as const }));
     setMySecretGhosts(p1Ghosts);
+    mySecretGhostsRef.current = p1Ghosts;
 
     // AI's 8 ghosts at top (y=4,5, x=1..4)
-    // Secretly assign 4 blue and 4 red to AI
     const aiColors: ('blue' | 'red')[] = ['blue', 'blue', 'blue', 'blue', 'red', 'red', 'red', 'red'];
     for (let i = aiColors.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -194,14 +206,16 @@ export const App: React.FC = () => {
       aiGhosts.push({
         id,
         owner: 'p2',
-        color: 'unknown', // Player does not know!
+        color: 'unknown',
         x: slot.x,
         y: slot.y,
       });
     });
 
     aiSecretColorsRef.current = aiSecretDict;
-    setGhosts([...p1Ghosts, ...aiGhosts]);
+    const initialBoard = [...p1Ghosts, ...aiGhosts];
+    setGhosts(initialBoard);
+    ghostsRef.current = initialBoard;
     setGameStatus('playing');
   };
 
@@ -212,12 +226,12 @@ export const App: React.FC = () => {
     setTurn('p1');
     setTurnNumber(1);
     setCapturedGhosts([]);
+    capturedGhostsRef.current = [];
     setLastMove(undefined);
     setSelectedGhostId(null);
     setValidMoves([]);
 
     const p1Ghosts = initialGhosts.map((g) => ({ ...g, owner: 'p1' as const }));
-    // P2 ghosts random setup
     const p2Colors: ('blue' | 'red')[] = ['blue', 'blue', 'blue', 'blue', 'red', 'red', 'red', 'red'];
     for (let i = p2Colors.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -239,158 +253,184 @@ export const App: React.FC = () => {
       });
     });
 
-    setGhosts([...p1Ghosts, ...p2Ghosts]);
+    const initialBoard = [...p1Ghosts, ...p2Ghosts];
+    setGhosts(initialBoard);
+    ghostsRef.current = initialBoard;
     setGameStatus('playing');
   };
 
-  // Online P2P Handlers
+  // Host Online Room
   const handleCreateOnlineRoom = async (initialGhosts: Ghost[]) => {
     setGameMode('online');
     setLocalPlayer('p1');
+    setIsHost(true);
     setTurn('p1');
     setTurnNumber(1);
     setCapturedGhosts([]);
+    capturedGhostsRef.current = [];
     setLastMove(undefined);
     setSelectedGhostId(null);
     setValidMoves([]);
+    setWaitingStatusText('Connecting to peer-to-peer signaling network...');
 
     const p1Ghosts = initialGhosts.map((g) => ({ ...g, owner: 'p1' as const }));
     setMySecretGhosts(p1Ghosts);
+    mySecretGhostsRef.current = p1Ghosts;
 
-    const code = await peerService.createRoom();
-    setRoomCode(code);
+    // Immediately enter Waiting Room so the user sees feedback!
+    setGameStatus('waiting');
 
-    // Initial unknown opponent ghosts
-    const p2Ghosts = createInitialOpponentGhosts('p2');
-    setGhosts([...p1Ghosts, ...p2Ghosts]);
+    try {
+      const code = await peerService.createRoom();
+      setRoomCode(code);
+      setWaitingStatusText('Room active! Waiting for Player 2 to enter code or join link...');
 
-    peerService.onPeerJoined = () => {
-      // Send setup synchronization (ghost IDs and positions only, NO colors!)
-      peerService.sendMessage({
-        type: 'SYNC_SETUP',
-        ghosts: p1Ghosts.map((g) => ({ id: g.id, x: g.x, y: g.y })),
-      });
-      setGameStatus('playing');
-    };
+      const p2Ghosts = createInitialOpponentGhosts('p2');
+      const initialBoard = [...p1Ghosts, ...p2Ghosts];
+      setGhosts(initialBoard);
+      ghostsRef.current = initialBoard;
 
-    peerService.onMessage = handleNetworkMessage;
+      peerService.onPeerJoined = () => {
+        soundManager.playTurnAlert();
+        // Send setup sync to guest
+        peerService.sendMessage({
+          type: 'SYNC_SETUP',
+          ghosts: p1Ghosts.map((g) => ({ id: g.id, x: g.x, y: g.y })),
+        });
+        setGameStatus('playing');
+      };
+
+      peerService.onMessage = handleNetworkMessage;
+      peerService.onError = (err) => {
+        setWaitingStatusText(`Connection notice: ${err.message}`);
+      };
+    } catch (err) {
+      console.error(err);
+      setWaitingStatusText('Could not connect to signaling broker. Please check internet connection.');
+    }
   };
 
+  // Join Online Room
   const handleJoinOnlineRoom = async (code: string, initialGhosts: Ghost[]) => {
     setGameMode('online');
     setLocalPlayer('p2');
-    setTurn('p1'); // P1 always moves first
+    setIsHost(false);
+    setTurn('p1'); // Host moves first
     setTurnNumber(1);
     setCapturedGhosts([]);
+    capturedGhostsRef.current = [];
     setLastMove(undefined);
     setSelectedGhostId(null);
     setValidMoves([]);
 
     const p2Ghosts = initialGhosts.map((g) => ({ ...g, owner: 'p2' as const }));
     setMySecretGhosts(p2Ghosts);
+    mySecretGhostsRef.current = p2Ghosts;
 
-    await peerService.joinRoom(code);
-    setRoomCode(code);
+    setRoomCode(code.toUpperCase());
+    setWaitingStatusText(`Connecting to Room ${code.toUpperCase()}...`);
+    setGameStatus('waiting');
 
-    const p1Ghosts = createInitialOpponentGhosts('p1');
-    setGhosts([...p2Ghosts, ...p1Ghosts]);
+    try {
+      await peerService.joinRoom(code);
+      setWaitingStatusText('Connected to Host! Synchronizing dungeon...');
 
-    peerService.onPeerJoined = () => {
-      // Send setup synchronization to host
-      peerService.sendMessage({
-        type: 'SYNC_SETUP',
-        ghosts: p2Ghosts.map((g) => ({ id: g.id, x: g.x, y: g.y })),
-      });
-      setGameStatus('playing');
-    };
+      const p1Ghosts = createInitialOpponentGhosts('p1');
+      const initialBoard = [...p2Ghosts, ...p1Ghosts];
+      setGhosts(initialBoard);
+      ghostsRef.current = initialBoard;
 
-    peerService.onMessage = handleNetworkMessage;
+      peerService.onPeerJoined = () => {
+        soundManager.playTurnAlert();
+        peerService.sendMessage({
+          type: 'SYNC_SETUP',
+          ghosts: p2Ghosts.map((g) => ({ id: g.id, x: g.x, y: g.y })),
+        });
+        setGameStatus('playing');
+      };
+
+      peerService.onMessage = handleNetworkMessage;
+    } catch (err: unknown) {
+      console.error(err);
+      alert((err as Error).message || 'Failed to connect to room.');
+      setGameStatus('lobby');
+    }
   };
 
-  // Process incoming network message from peer
+  // Process incoming network messages
   const handleNetworkMessage = useCallback(
     (msg: NetworkMessage) => {
       if (msg.type === 'SYNC_SETUP') {
-        // Update opponent ghost positions in local state
-        setGhosts((prev) => {
-          const myPieces = prev.filter((g) => g.owner === localPlayer);
-          const opponentRole: PlayerRole = localPlayer === 'p1' ? 'p2' : 'p1';
-          const oppPieces: Ghost[] = msg.ghosts.map((g) => ({
-            id: g.id,
-            owner: opponentRole,
-            color: 'unknown',
-            // Invert coordinates for symmetrical view
-            x: 5 - g.x,
-            y: 5 - g.y,
-          }));
-          return [...myPieces, ...oppPieces];
-        });
+        const myPieces = ghostsRef.current.filter((g) => g.owner === localPlayer);
+        const opponentRole: PlayerRole = localPlayer === 'p1' ? 'p2' : 'p1';
+        const oppPieces: Ghost[] = msg.ghosts.map((g) => ({
+          id: g.id,
+          owner: opponentRole,
+          color: 'unknown',
+          x: 5 - g.x,
+          y: 5 - g.y,
+        }));
+        const syncedBoard = [...myPieces, ...oppPieces];
+        setGhosts(syncedBoard);
+        ghostsRef.current = syncedBoard;
         setGameStatus('playing');
       } else if (msg.type === 'MOVE') {
-        // Opponent moved a ghost
         const invX = 5 - msg.toX;
         const invY = 5 - msg.toY;
 
-        setGhosts((prev) => {
-          const movedGhost = prev.find((g) => g.id === msg.ghostId);
-          if (!movedGhost) return prev;
-
-          const fromX = movedGhost.x;
-          const fromY = movedGhost.y;
-
+        const movedGhost = ghostsRef.current.find((g) => g.id === msg.ghostId);
+        if (movedGhost) {
           setLastMove({
-            from: { x: fromX, y: fromY },
+            from: { x: movedGhost.x, y: movedGhost.y },
             to: { x: invX, y: invY },
             ghostId: msg.ghostId,
           });
+        }
 
-          return prev.map((g) => (g.id === msg.ghostId ? { ...g, x: invX, y: invY } : g));
-        });
+        const nextGhosts = ghostsRef.current.map((g) =>
+          g.id === msg.ghostId ? { ...g, x: invX, y: invY } : g
+        );
+        setGhosts(nextGhosts);
+        ghostsRef.current = nextGhosts;
 
         soundManager.playMove();
-        // Switch turn back to local player
         setTurn(localPlayer);
         setTurnNumber((t) => t + 1);
         soundManager.playTurnAlert();
       } else if (msg.type === 'CAPTURE_ATTEMPT') {
-        // Opponent wants to capture one of my ghosts
-        const targetGhost = mySecretGhosts.find((g) => g.id === msg.targetGhostId);
+        const targetGhost = mySecretGhostsRef.current.find((g) => g.id === msg.targetGhostId);
         const revealedColor = targetGhost ? targetGhost.color : ('blue' as const);
 
-        // Send back true color of the captured ghost!
         peerService.sendMessage({
           type: 'CAPTURE_REVEAL',
           targetGhostId: msg.targetGhostId,
           revealedColor: revealedColor as 'blue' | 'red',
         });
 
-        // Apply capture locally
         const invX = 5 - msg.toX;
         const invY = 5 - msg.toY;
 
-        setGhosts((prev) => {
-          const updated = prev.map((g) => {
-            if (g.id === msg.targetGhostId) {
-              return { ...g, isCaptured: true, color: revealedColor };
-            }
-            if (g.id === msg.ghostId) {
-              return { ...g, x: invX, y: invY };
-            }
-            return g;
-          });
-
-          const newCaptured: CapturedGhost = {
-            id: msg.targetGhostId,
-            owner: localPlayer,
-            color: revealedColor as 'blue' | 'red',
-            turnNumber,
-          };
-
-          const nextCapturedList = [...capturedGhosts, newCaptured];
-          setCapturedGhosts(nextCapturedList);
-          checkWinConditions(nextCapturedList, updated);
-          return updated;
+        const nextGhosts = ghostsRef.current.map((g) => {
+          if (g.id === msg.targetGhostId) {
+            return { ...g, isCaptured: true, color: revealedColor };
+          }
+          if (g.id === msg.ghostId) {
+            return { ...g, x: invX, y: invY };
+          }
+          return g;
         });
+        setGhosts(nextGhosts);
+        ghostsRef.current = nextGhosts;
+
+        const newCaptured: CapturedGhost = {
+          id: msg.targetGhostId,
+          owner: localPlayer,
+          color: revealedColor as 'blue' | 'red',
+          turnNumber,
+        };
+        const nextCapturedList = [...capturedGhostsRef.current, newCaptured];
+        setCapturedGhosts(nextCapturedList);
+        capturedGhostsRef.current = nextCapturedList;
 
         if (revealedColor === 'blue') {
           soundManager.playCaptureGood();
@@ -398,16 +438,17 @@ export const App: React.FC = () => {
           soundManager.playCaptureBad();
         }
 
+        checkWinConditions(nextCapturedList, nextGhosts);
+
         setTurn(localPlayer);
         setTurnNumber((t) => t + 1);
         soundManager.playTurnAlert();
       } else if (msg.type === 'CAPTURE_REVEAL') {
-        // Opponent revealed the color of the ghost we just captured!
-        setGhosts((prev) =>
-          prev.map((g) =>
-            g.id === msg.targetGhostId ? { ...g, isCaptured: true, color: msg.revealedColor } : g
-          )
+        const nextGhosts = ghostsRef.current.map((g) =>
+          g.id === msg.targetGhostId ? { ...g, isCaptured: true, color: msg.revealedColor } : g
         );
+        setGhosts(nextGhosts);
+        ghostsRef.current = nextGhosts;
 
         const oppRole: PlayerRole = localPlayer === 'p1' ? 'p2' : 'p1';
         const newCaptured: CapturedGhost = {
@@ -416,9 +457,9 @@ export const App: React.FC = () => {
           color: msg.revealedColor,
           turnNumber,
         };
-
-        const nextCapturedList = [...capturedGhosts, newCaptured];
+        const nextCapturedList = [...capturedGhostsRef.current, newCaptured];
         setCapturedGhosts(nextCapturedList);
+        capturedGhostsRef.current = nextCapturedList;
 
         if (msg.revealedColor === 'blue') {
           soundManager.playCaptureGood();
@@ -426,22 +467,22 @@ export const App: React.FC = () => {
           soundManager.playCaptureBad();
         }
 
-        checkWinConditions(nextCapturedList, ghosts);
+        checkWinConditions(nextCapturedList, nextGhosts);
       } else if (msg.type === 'ESCAPE') {
-        // Opponent escaped!
-        setGhosts((prev) =>
-          prev.map((g) => (g.id === msg.ghostId ? { ...g, hasEscaped: true, color: 'blue' } : g))
+        const nextGhosts: Ghost[] = ghostsRef.current.map((g) =>
+          g.id === msg.ghostId ? { ...g, hasEscaped: true, color: 'blue' as const } : g
         );
+        setGhosts(nextGhosts);
+        ghostsRef.current = nextGhosts;
         soundManager.playEscape();
         setWinner(localPlayer === 'p1' ? 'p2' : 'p1');
         setWinReason('escaped');
         setGameStatus('gameover');
       } else if (msg.type === 'EMOTE') {
-        // Receive emote
         handleShowEmote(msg.emoji, 'opponent');
       }
     },
-    [localPlayer, mySecretGhosts, turnNumber, capturedGhosts, ghosts, checkWinConditions]
+    [localPlayer, turnNumber, checkWinConditions]
   );
 
   const handleShowEmote = (emoji: string, sender: 'me' | 'opponent') => {
@@ -463,7 +504,7 @@ export const App: React.FC = () => {
     }
   };
 
-  // Player clicks on one of their own ghosts to select it
+  // Player selection
   const handleSelectGhost = (ghost: Ghost) => {
     if (turn !== localPlayer && gameMode !== 'pass-and-play') return;
     if (gameStatus !== 'playing') return;
@@ -476,25 +517,23 @@ export const App: React.FC = () => {
     }
 
     setSelectedGhostId(ghost.id);
-    const moves = getValidMovesForGhost(ghost, ghosts, ghost.owner);
+    const moves = getValidMovesForGhost(ghost, ghostsRef.current, ghost.owner);
     setValidMoves(moves);
   };
 
-  // Execute a player move to (targetX, targetY)
+  // Tile click / move execution
   const handleTileClick = (targetX: number, targetY: number) => {
     if (!selectedGhostId) return;
-    const movingGhost = ghosts.find((g) => g.id === selectedGhostId);
+    const movingGhost = ghostsRef.current.find((g) => g.id === selectedGhostId);
     if (!movingGhost) return;
 
-    // Check if target is valid move
     const isValid = validMoves.some((m) => m.x === targetX && m.y === targetY && !m.isExit);
     if (!isValid) return;
 
     const fromPos = { x: movingGhost.x, y: movingGhost.y };
     const toPos = { x: targetX, y: targetY };
 
-    // Check if target contains opponent ghost
-    const targetGhost = ghosts.find(
+    const targetGhost = ghostsRef.current.find(
       (g) => !g.isCaptured && !g.hasEscaped && g.x === targetX && g.y === targetY
     );
 
@@ -504,53 +543,50 @@ export const App: React.FC = () => {
     if (targetGhost && targetGhost.owner !== movingGhost.owner) {
       isCapture = true;
       if (gameMode === 'ai') {
-        // Look up AI secret color
         revealedColor = aiSecretColorsRef.current[targetGhost.id] || 'blue';
       } else if (gameMode === 'pass-and-play') {
         revealedColor = targetGhost.color as 'blue' | 'red';
       }
     }
 
-    // Update ghosts state
-    setGhosts((prev) => {
-      const updated = prev.map((g) => {
-        if (targetGhost && g.id === targetGhost.id) {
-          return {
-            ...g,
-            isCaptured: true,
-            color: revealedColor || g.color,
-          };
-        }
-        if (g.id === movingGhost.id) {
-          return { ...g, x: targetX, y: targetY };
-        }
-        return g;
-      });
-
-      // If capture occurred
-      if (isCapture && targetGhost && revealedColor) {
-        const newCaptured: CapturedGhost = {
-          id: targetGhost.id,
-          owner: targetGhost.owner,
-          color: revealedColor,
-          turnNumber,
+    // Build updated ghost array
+    const updatedGhosts = ghostsRef.current.map((g) => {
+      if (targetGhost && g.id === targetGhost.id) {
+        return {
+          ...g,
+          isCaptured: true,
+          color: revealedColor || g.color,
         };
-        const nextCapturedList = [...capturedGhosts, newCaptured];
-        setCapturedGhosts(nextCapturedList);
-
-        if (revealedColor === 'blue') {
-          soundManager.playCaptureGood();
-        } else {
-          soundManager.playCaptureBad();
-        }
-
-        checkWinConditions(nextCapturedList, updated);
-      } else {
-        soundManager.playMove();
       }
-
-      return updated;
+      if (g.id === movingGhost.id) {
+        return { ...g, x: targetX, y: targetY };
+      }
+      return g;
     });
+
+    setGhosts(updatedGhosts);
+    ghostsRef.current = updatedGhosts;
+
+    let nextCapturedList = capturedGhostsRef.current;
+    if (isCapture && targetGhost && revealedColor) {
+      const newCaptured: CapturedGhost = {
+        id: targetGhost.id,
+        owner: targetGhost.owner,
+        color: revealedColor,
+        turnNumber,
+      };
+      nextCapturedList = [...capturedGhostsRef.current, newCaptured];
+      setCapturedGhosts(nextCapturedList);
+      capturedGhostsRef.current = nextCapturedList;
+
+      if (revealedColor === 'blue') {
+        soundManager.playCaptureGood();
+      } else {
+        soundManager.playCaptureBad();
+      }
+    } else {
+      soundManager.playMove();
+    }
 
     setLastMove({
       from: fromPos,
@@ -560,7 +596,6 @@ export const App: React.FC = () => {
       capturedColor: revealedColor,
     });
 
-    // Network notification in online mode
     if (gameMode === 'online') {
       if (isCapture && targetGhost) {
         peerService.sendMessage({
@@ -583,31 +618,35 @@ export const App: React.FC = () => {
     setSelectedGhostId(null);
     setValidMoves([]);
 
-    // Turn transition
+    // Check Win Conditions
+    const hasWon = checkWinConditions(nextCapturedList, updatedGhosts);
+    if (hasWon) return;
+
+    // Switch Turn
     const nextTurn: PlayerRole = turn === 'p1' ? 'p2' : 'p1';
     setTurn(nextTurn);
     setTurnNumber((t) => t + 1);
 
-    // If game mode is AI, trigger AI response after a short delay
-    if (gameMode === 'ai' && nextTurn === 'p2' && gameStatus !== 'gameover') {
+    if (gameMode === 'ai' && nextTurn === 'p2') {
       triggerAITurn();
     }
   };
 
-  // Escape handling: Good Blue ghost moves off the board through top exit
+  // Escape handling
   const handleEscapeClick = () => {
     if (!selectedGhostId) return;
-    const ghost = ghosts.find((g) => g.id === selectedGhostId);
+    const ghost = ghostsRef.current.find((g) => g.id === selectedGhostId);
     if (!ghost || ghost.color !== 'blue') return;
 
-    // Must be on exit square (0, 5) or (5, 5)
     if (ghost.y !== 5 || (ghost.x !== 0 && ghost.x !== 5)) return;
 
     soundManager.playEscape();
 
-    setGhosts((prev) =>
-      prev.map((g) => (g.id === ghost.id ? { ...g, hasEscaped: true } : g))
+    const nextGhosts = ghostsRef.current.map((g) =>
+      g.id === ghost.id ? { ...g, hasEscaped: true } : g
     );
+    setGhosts(nextGhosts);
+    ghostsRef.current = nextGhosts;
 
     if (gameMode === 'online') {
       peerService.sendMessage({
@@ -624,99 +663,98 @@ export const App: React.FC = () => {
   // AI Turn Execution
   const triggerAITurn = () => {
     setTimeout(() => {
-      setGhosts((currentGhosts) => {
-        // Construct AI view with true colors for AI
-        const aiGhosts = currentGhosts
-          .filter((g) => g.owner === 'p2')
-          .map((g) => ({
-            ...g,
-            color: aiSecretColorsRef.current[g.id] || 'blue',
-            // Invert coordinates for AI calculation: AI sees board from its perspective!
-            x: 5 - g.x,
-            y: 5 - g.y,
-          }));
+      const current = ghostsRef.current;
+      const aiGhosts = current
+        .filter((g) => g.owner === 'p2')
+        .map((g) => ({
+          ...g,
+          color: aiSecretColorsRef.current[g.id] || 'blue',
+          x: 5 - g.x,
+          y: 5 - g.y,
+        }));
 
-        const playerGhosts = currentGhosts
-          .filter((g) => g.owner === 'p1')
-          .map((g) => ({
-            ...g,
-            x: 5 - g.x,
-            y: 5 - g.y,
-          }));
+      const playerGhosts = current
+        .filter((g) => g.owner === 'p1')
+        .map((g) => ({
+          ...g,
+          x: 5 - g.x,
+          y: 5 - g.y,
+        }));
 
-        const aiDecision = calculateAIMove(aiGhosts, playerGhosts);
-        if (!aiDecision) return currentGhosts;
+      const aiDecision = calculateAIMove(aiGhosts, playerGhosts);
+      if (!aiDecision) return;
 
-        // Invert back to global coordinates
-        const targetX = 5 - aiDecision.to.x;
-        const targetY = 5 - aiDecision.to.y;
+      const targetX = 5 - aiDecision.to.x;
+      const targetY = 5 - aiDecision.to.y;
 
-        // Check if AI escapes
-        if (aiDecision.isExit) {
-          soundManager.playEscape();
-          setWinner('p2');
-          setWinReason('escaped');
-          setGameStatus('gameover');
-          return currentGhosts.map((g) =>
-            g.id === aiDecision.ghostId ? { ...g, hasEscaped: true, color: 'blue' } : g
-          );
-        }
-
-        // Check if AI captures a player ghost
-        const capturedPlayerGhost = currentGhosts.find(
-          (g) => !g.isCaptured && !g.hasEscaped && g.owner === 'p1' && g.x === targetX && g.y === targetY
+      if (aiDecision.isExit) {
+        soundManager.playEscape();
+        setWinner('p2');
+        setWinReason('escaped');
+        setGameStatus('gameover');
+        const escapedList = current.map((g) =>
+          g.id === aiDecision.ghostId ? { ...g, hasEscaped: true, color: 'blue' as const } : g
         );
+        setGhosts(escapedList);
+        ghostsRef.current = escapedList;
+        return;
+      }
 
-        let nextCaptured = capturedGhosts;
-        if (capturedPlayerGhost) {
-          const capObj: CapturedGhost = {
-            id: capturedPlayerGhost.id,
-            owner: 'p1',
-            color: capturedPlayerGhost.color as 'blue' | 'red',
-            turnNumber,
-          };
-          nextCaptured = [...capturedGhosts, capObj];
-          setCapturedGhosts(nextCaptured);
+      const capturedPlayerGhost = current.find(
+        (g) => !g.isCaptured && !g.hasEscaped && g.owner === 'p1' && g.x === targetX && g.y === targetY
+      );
 
-          if (capturedPlayerGhost.color === 'blue') {
-            soundManager.playCaptureGood();
-          } else {
-            soundManager.playCaptureBad();
-          }
+      let nextCaptured = capturedGhostsRef.current;
+      if (capturedPlayerGhost) {
+        const capObj: CapturedGhost = {
+          id: capturedPlayerGhost.id,
+          owner: 'p1',
+          color: capturedPlayerGhost.color as 'blue' | 'red',
+          turnNumber,
+        };
+        nextCaptured = [...capturedGhostsRef.current, capObj];
+        setCapturedGhosts(nextCaptured);
+        capturedGhostsRef.current = nextCaptured;
+
+        if (capturedPlayerGhost.color === 'blue') {
+          soundManager.playCaptureGood();
         } else {
-          soundManager.playMove();
+          soundManager.playCaptureBad();
         }
+      } else {
+        soundManager.playMove();
+      }
 
-        const updatedGhosts = currentGhosts.map((g) => {
-          if (capturedPlayerGhost && g.id === capturedPlayerGhost.id) {
-            return { ...g, isCaptured: true };
-          }
-          if (g.id === aiDecision.ghostId) {
-            return { ...g, x: targetX, y: targetY };
-          }
-          return g;
-        });
+      const updatedGhosts = current.map((g) => {
+        if (capturedPlayerGhost && g.id === capturedPlayerGhost.id) {
+          return { ...g, isCaptured: true };
+        }
+        if (g.id === aiDecision.ghostId) {
+          return { ...g, x: targetX, y: targetY };
+        }
+        return g;
+      });
 
-        setLastMove({
-          from: { x: 5 - aiDecision.from.x, y: 5 - aiDecision.from.y },
-          to: { x: targetX, y: targetY },
-          ghostId: aiDecision.ghostId,
-          isCapture: !!capturedPlayerGhost,
-          capturedColor: capturedPlayerGhost ? (capturedPlayerGhost.color as 'blue' | 'red') : undefined,
-        });
+      setGhosts(updatedGhosts);
+      ghostsRef.current = updatedGhosts;
 
-        checkWinConditions(nextCaptured, updatedGhosts);
+      setLastMove({
+        from: { x: 5 - aiDecision.from.x, y: 5 - aiDecision.from.y },
+        to: { x: targetX, y: targetY },
+        ghostId: aiDecision.ghostId,
+        isCapture: !!capturedPlayerGhost,
+        capturedColor: capturedPlayerGhost ? (capturedPlayerGhost.color as 'blue' | 'red') : undefined,
+      });
 
+      const hasWon = checkWinConditions(nextCaptured, updatedGhosts);
+      if (!hasWon) {
         setTurn('p1');
         setTurnNumber((t) => t + 1);
         soundManager.playTurnAlert();
-
-        return updatedGhosts;
-      });
+      }
     }, 700);
   };
 
-  // Rematch / Reset
   const handleResetGame = () => {
     peerService.disconnect();
     setGameStatus('lobby');
@@ -728,35 +766,46 @@ export const App: React.FC = () => {
 
   const handleRematch = () => {
     if (gameMode === 'ai') {
-      handleStartAI(mySecretGhosts);
+      handleStartAI(mySecretGhostsRef.current);
     } else if (gameMode === 'pass-and-play') {
-      handleStartPassAndPlay(mySecretGhosts);
+      handleStartPassAndPlay(mySecretGhostsRef.current);
     } else {
-      handleCreateOnlineRoom(mySecretGhosts);
+      handleCreateOnlineRoom(mySecretGhostsRef.current);
     }
   };
 
-  // Default ghost layout for initial preview
   const defaultGhosts = createInitialGhosts('p1');
 
   return (
     <div className="app-container">
-      {/* Ambient background decoration particles */}
       <div className="ambient-background">
         <div className="candle-glow top-candle-1" />
         <div className="candle-glow top-candle-2" />
         <div className="candle-glow bottom-candle" />
       </div>
 
-      {gameStatus === 'lobby' ? (
+      {gameStatus === 'lobby' && (
         <LobbyScreen
           onStartAI={handleStartAI}
           onStartPassAndPlay={handleStartPassAndPlay}
           onCreateOnlineRoom={handleCreateOnlineRoom}
           onJoinOnlineRoom={handleJoinOnlineRoom}
           defaultGhosts={defaultGhosts}
+          prefilledRoomCode={roomCode}
         />
-      ) : (
+      )}
+
+      {gameStatus === 'waiting' && (
+        <WaitingRoom
+          roomCode={roomCode}
+          isHost={isHost}
+          myGhosts={mySecretGhosts}
+          statusText={waitingStatusText}
+          onCancel={handleResetGame}
+        />
+      )}
+
+      {(gameStatus === 'playing' || gameStatus === 'gameover') && (
         <main className="game-screen">
           <HeaderHud
             roomCode={roomCode}
@@ -769,7 +818,6 @@ export const App: React.FC = () => {
           />
 
           <div className="board-layout-container">
-            {/* Desktop Left Graveyard: Opponent's Captured Ghosts */}
             <aside className="desktop-side-panel left-side">
               <Graveyard
                 title="OPPONENT'S CEMETERY"
@@ -779,7 +827,6 @@ export const App: React.FC = () => {
               />
             </aside>
 
-            {/* Central 6x6 Board */}
             <div className="center-board-panel">
               <GameBoard
                 ghosts={ghosts}
@@ -794,11 +841,9 @@ export const App: React.FC = () => {
                 onEscapeClick={handleEscapeClick}
               />
 
-              {/* Emotes below board */}
               <EmoteBar onSendEmote={handleSendEmote} activeEmotes={activeEmotes} />
             </div>
 
-            {/* Desktop Right Graveyard: Your Captured Ghosts */}
             <aside className="desktop-side-panel right-side">
               <Graveyard
                 title="YOUR CEMETERY"
@@ -810,10 +855,8 @@ export const App: React.FC = () => {
         </main>
       )}
 
-      {/* Rules Modal */}
       <RulesModal isOpen={isRulesOpen} onClose={() => setIsRulesOpen(false)} />
 
-      {/* Game Over Celebration Modal */}
       {winner && winReason && (
         <GameOverModal
           isOpen={gameStatus === 'gameover'}
