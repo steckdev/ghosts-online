@@ -1,0 +1,18 @@
+{
+  "name": "Ghosts 80s - Classic Randolph Board Game",
+  "short_name": "Ghosts 80s",
+  "description": "Alex Randolph's 1982 classic board game of asymmetric deduction and bluffing",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0d0e15",
+  "theme_color": "#0d0e15",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

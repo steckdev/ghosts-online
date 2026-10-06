@@ -1,0 +1,58 @@
+:root {
+  --font-main: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-retro: 'Creepster', cursive;
+  --font-pixel: 'Press Start 2P', monospace;
+
+  --color-bg-dark: #0a0812;
+  --color-stone-tile: #1a1e28;
+  --color-stone-tile-border: #2e384d;
+  --color-stone-tile-alt: #161922;
+
+  --neon-blue: #00e5ff;
+  --neon-blue-glow: rgba(0, 229, 255, 0.75);
+  --neon-red: #ff1744;
+  --neon-red-glow: rgba(255, 23, 68, 0.8);
+  --neon-green: #39ff14;
+  --neon-green-glow: rgba(57, 255, 20, 0.8);
+  --neon-orange: #ff9100;
+
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow-x: hidden;
+  background-color: var(--color-bg-dark);
+  color: #f1f5f9;
+  font-family: var(--font-main);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  touch-action: manipulation;
+}
+
+#root {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0f111a;
+}
+::-webkit-scrollbar-thumb {
+  background: #2a334a;
+  border-radius: 3px;
+}
