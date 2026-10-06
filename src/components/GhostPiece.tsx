@@ -176,7 +176,7 @@ export const GhostPiece: React.FC<GhostPieceProps> = ({
 
             {/* Subtle sly smirk */}
             <path
-              d="M 44 53 Q 50 56 56 53"
+              d="M 44 53 Q 50 55 56 53"
               fill="none"
               stroke="#3f000b"
               strokeWidth="2.8"

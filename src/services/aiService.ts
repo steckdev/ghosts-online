@@ -12,7 +12,8 @@ export function getValidMovesForGhost(
   ghost: Ghost,
   allGhosts: Ghost[],
   playerRole: 'p1' | 'p2',
-  isGlobalCoordinates: boolean = false
+  isGlobalCoordinates: boolean = false,
+  isOnlineMode: boolean = false
 ): { x: number; y: number; isExit?: boolean }[] {
   const moves: { x: number; y: number; isExit?: boolean }[] = [];
   const directions = [
@@ -23,13 +24,13 @@ export function getValidMovesForGhost(
   ];
 
   // Exit check: If ghost is GOOD (Blue) and already at an exit tile
-  if (!isGlobalCoordinates) {
-    // Local / Normalized perspective (player moves from y=0 to y=5)
+  if (isOnlineMode || !isGlobalCoordinates) {
+    // Local / Normalized perspective (both players in Online/AI advance from y=0 towards y=5)
     if (ghost.color === 'blue' && ghost.y === 5 && (ghost.x === 0 || ghost.x === 5)) {
       moves.push({ x: ghost.x, y: 6, isExit: true });
     }
   } else {
-    // Global board coordinates
+    // Global board coordinates for Pass & Play
     if (playerRole === 'p1' && ghost.color === 'blue' && ghost.y === 5 && (ghost.x === 0 || ghost.x === 5)) {
       moves.push({ x: ghost.x, y: 6, isExit: true });
     } else if (playerRole === 'p2' && ghost.color === 'blue' && ghost.y === 0 && (ghost.x === 0 || ghost.x === 5)) {

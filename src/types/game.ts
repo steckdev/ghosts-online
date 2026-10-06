@@ -61,6 +61,8 @@ export type NetworkMessage =
       ghostId: string;
       toX: number;
       toY: number;
+      nextTurn?: PlayerRole;
+      turnNumber?: number;
     }
   | {
       type: 'CAPTURE_ATTEMPT';
@@ -68,6 +70,8 @@ export type NetworkMessage =
       toX: number;
       toY: number;
       targetGhostId: string;
+      nextTurn?: PlayerRole;
+      turnNumber?: number;
     }
   | {
       type: 'CAPTURE_REVEAL';

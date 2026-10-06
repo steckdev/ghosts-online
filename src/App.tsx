@@ -67,6 +67,23 @@ export const App: React.FC = () => {
   // Synchronous ref for captured ghosts
   const [capturedGhosts, setCapturedGhosts] = useState<CapturedGhost[]>([]);
   const capturedGhostsRef = useRef<CapturedGhost[]>([]);
+  const localPlayerRef = useRef<PlayerRole>('p1');
+  const turnNumberRef = useRef<number>(1);
+  const latestNetworkHandlerRef = useRef<(msg: NetworkMessage) => void>(() => {});
+
+  useEffect(() => {
+    localPlayerRef.current = localPlayer;
+  }, [localPlayer]);
+
+  useEffect(() => {
+    turnNumberRef.current = turnNumber;
+  }, [turnNumber]);
+
+  useEffect(() => {
+    peerService.onMessage = (msg: NetworkMessage) => {
+      latestNetworkHandlerRef.current(msg);
+    };
+  }, []);
 
   useEffect(() => {
     ghostsRef.current = ghosts;
@@ -280,6 +297,7 @@ export const App: React.FC = () => {
   const handleCreateOnlineRoom = async (initialGhosts: Ghost[]) => {
     setGameMode('online');
     setLocalPlayer('p1');
+    localPlayerRef.current = 'p1';
     setIsHost(true);
     setTurn('p1');
     setTurnNumber(1);
@@ -298,8 +316,6 @@ export const App: React.FC = () => {
     setGameStatus('waiting');
 
     try {
-      peerService.onMessage = handleNetworkMessage;
-
       const code = await peerService.createRoom();
       setRoomCode(code);
       setWaitingStatusText('Room active! Waiting for Player 2 to enter code or join link...');
@@ -331,6 +347,7 @@ export const App: React.FC = () => {
   const handleJoinOnlineRoom = async (code: string, initialGhosts: Ghost[]) => {
     setGameMode('online');
     setLocalPlayer('p2');
+    localPlayerRef.current = 'p2';
     setIsHost(false);
     setTurn('p1');
     setTurnNumber(1);
@@ -356,8 +373,6 @@ export const App: React.FC = () => {
     setGameStatus('waiting');
 
     try {
-      peerService.onMessage = handleNetworkMessage;
-
       const p1Ghosts = createInitialOpponentGhosts('p1');
       const initialBoard = [...p2Ghosts, ...p1Ghosts];
       setGhosts(initialBoard);
@@ -400,9 +415,22 @@ export const App: React.FC = () => {
     setTurn('p1');
     setTurnNumber(1);
 
-    const myRole = localPlayer;
+    const myRole = localPlayerRef.current;
     const oppRole: PlayerRole = myRole === 'p1' ? 'p2' : 'p1';
-    const myPieces = mySecretGhostsRef.current;
+    const slots = [
+      { x: 1, y: 0 }, { x: 2, y: 0 }, { x: 3, y: 0 }, { x: 4, y: 0 },
+      { x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 1 }, { x: 4, y: 1 },
+    ];
+    const myPieces = mySecretGhostsRef.current.map((g, idx) => ({
+      ...g,
+      x: slots[idx].x,
+      y: slots[idx].y,
+      isCaptured: false,
+      hasEscaped: false,
+    }));
+    setMySecretGhosts(myPieces);
+    mySecretGhostsRef.current = myPieces;
+
     const oppPieces = createInitialOpponentGhosts(oppRole);
     const initialBoard = myRole === 'p1' ? [...myPieces, ...oppPieces] : [...oppPieces, ...myPieces];
     setGhosts(initialBoard);
@@ -410,14 +438,16 @@ export const App: React.FC = () => {
 
     setGameStatus('playing');
     soundManager.playTurnAlert();
-  }, [localPlayer]);
+  }, []);
 
   // Network messages
   const handleNetworkMessage = useCallback(
     (msg: NetworkMessage) => {
+      const myRole = localPlayerRef.current;
+      const opponentRole: PlayerRole = myRole === 'p1' ? 'p2' : 'p1';
+
       if (msg.type === 'SYNC_SETUP') {
         const myPieces = mySecretGhostsRef.current;
-        const opponentRole: PlayerRole = localPlayer === 'p1' ? 'p2' : 'p1';
         const oppPieces: Ghost[] = msg.ghosts.map((g) => ({
           id: g.id,
           owner: opponentRole,
@@ -431,7 +461,7 @@ export const App: React.FC = () => {
         setGameStatus('playing');
 
         // If I am Host and I received SYNC_SETUP from Guest, ensure my setup is sent too
-        if (localPlayer === 'p1') {
+        if (myRole === 'p1') {
           peerService.sendMessage({
             type: 'SYNC_SETUP',
             ghosts: mySecretGhostsRef.current.map((g) => ({ id: g.id, x: g.x, y: g.y })),
@@ -439,7 +469,6 @@ export const App: React.FC = () => {
         }
       } else if (msg.type === 'STATE_SYNC') {
         const myPieces = mySecretGhostsRef.current;
-        const opponentRole: PlayerRole = localPlayer === 'p1' ? 'p2' : 'p1';
 
         const updatedOppPieces: Ghost[] = msg.ghosts
           .filter((g) => g.id.startsWith(opponentRole))
@@ -496,8 +525,9 @@ export const App: React.FC = () => {
         ghostsRef.current = nextGhosts;
 
         soundManager.playMove();
-        setTurn(localPlayer);
-        setTurnNumber((t) => t + 1);
+        const nextTurn = msg.nextTurn || myRole;
+        setTurn(nextTurn);
+        setTurnNumber((t) => msg.turnNumber ?? (t + 1));
         soundManager.playTurnAlert();
       } else if (msg.type === 'CAPTURE_ATTEMPT') {
         const targetGhost = mySecretGhostsRef.current.find((g) => g.id === msg.targetGhostId);
@@ -524,11 +554,18 @@ export const App: React.FC = () => {
         setGhosts(nextGhosts);
         ghostsRef.current = nextGhosts;
 
+        setMySecretGhosts((prev) =>
+          prev.map((g) => (g.id === msg.targetGhostId ? { ...g, isCaptured: true } : g))
+        );
+        mySecretGhostsRef.current = mySecretGhostsRef.current.map((g) =>
+          g.id === msg.targetGhostId ? { ...g, isCaptured: true } : g
+        );
+
         const newCaptured: CapturedGhost = {
           id: msg.targetGhostId,
-          owner: localPlayer,
+          owner: myRole,
           color: revealedColor as 'blue' | 'red',
-          turnNumber,
+          turnNumber: msg.turnNumber ?? turnNumberRef.current,
         };
         const nextCapturedList = [...capturedGhostsRef.current, newCaptured];
         setCapturedGhosts(nextCapturedList);
@@ -542,8 +579,9 @@ export const App: React.FC = () => {
 
         checkWinConditions(nextCapturedList, nextGhosts);
 
-        setTurn(localPlayer);
-        setTurnNumber((t) => t + 1);
+        const nextTurn = msg.nextTurn || myRole;
+        setTurn(nextTurn);
+        setTurnNumber((t) => msg.turnNumber ?? (t + 1));
         soundManager.playTurnAlert();
       } else if (msg.type === 'CAPTURE_REVEAL') {
         const nextGhosts = ghostsRef.current.map((g) =>
@@ -552,12 +590,11 @@ export const App: React.FC = () => {
         setGhosts(nextGhosts);
         ghostsRef.current = nextGhosts;
 
-        const oppRole: PlayerRole = localPlayer === 'p1' ? 'p2' : 'p1';
         const newCaptured: CapturedGhost = {
           id: msg.targetGhostId,
-          owner: oppRole,
+          owner: opponentRole,
           color: msg.revealedColor,
-          turnNumber,
+          turnNumber: turnNumberRef.current,
         };
         const nextCapturedList = [...capturedGhostsRef.current, newCaptured];
         setCapturedGhosts(nextCapturedList);
@@ -577,7 +614,7 @@ export const App: React.FC = () => {
         setGhosts(nextGhosts);
         ghostsRef.current = nextGhosts;
         soundManager.playEscape();
-        setWinner(localPlayer === 'p1' ? 'p2' : 'p1');
+        setWinner(localPlayerRef.current === 'p1' ? 'p2' : 'p1');
         setWinReason('escaped');
         setGameStatus('gameover');
       } else if (msg.type === 'REMATCH_REQUEST') {
@@ -590,8 +627,12 @@ export const App: React.FC = () => {
         handleShowEmote(msg.emoji, 'opponent');
       }
     },
-    [localPlayer, turnNumber, checkWinConditions, handleShowEmote, handleResetForRematch]
+    [checkWinConditions, handleShowEmote, handleResetForRematch]
   );
+
+  useEffect(() => {
+    latestNetworkHandlerRef.current = handleNetworkMessage;
+  });
 
   const handleSendEmote = (emoji: string) => {
     handleShowEmote(emoji, 'me');
@@ -599,7 +640,7 @@ export const App: React.FC = () => {
       peerService.sendMessage({
         type: 'EMOTE',
         emoji,
-        sender: localPlayer,
+        sender: localPlayerRef.current,
       });
     }
   };
@@ -622,7 +663,7 @@ export const App: React.FC = () => {
     }
 
     setSelectedGhostId(ghost.id);
-    const moves = getValidMovesForGhost(ghost, ghostsRef.current, ghost.owner, true);
+    const moves = getValidMovesForGhost(ghost, ghostsRef.current, ghost.owner, true, gameMode === 'online');
     setValidMoves(moves);
   };
 
@@ -673,6 +714,16 @@ export const App: React.FC = () => {
     setGhosts(updatedGhosts);
     ghostsRef.current = updatedGhosts;
 
+    // Keep secret ghost positions updated so re-syncs and recovery maintain current board state
+    if (movingGhost.owner === localPlayerRef.current) {
+      setMySecretGhosts((prev) =>
+        prev.map((g) => (g.id === movingGhost.id ? { ...g, x: targetX, y: targetY } : g))
+      );
+      mySecretGhostsRef.current = mySecretGhostsRef.current.map((g) =>
+        g.id === movingGhost.id ? { ...g, x: targetX, y: targetY } : g
+      );
+    }
+
     let nextCapturedList = capturedGhostsRef.current;
     if (isCapture && targetGhost && revealedColor) {
       const newCaptured: CapturedGhost = {
@@ -715,6 +766,9 @@ export const App: React.FC = () => {
       capturedColor: revealedColor,
     });
 
+    const nextTurn: PlayerRole = turn === 'p1' ? 'p2' : 'p1';
+    const nextTurnNumber = turnNumber + 1;
+
     if (gameMode === 'online') {
       if (isCapture && targetGhost) {
         peerService.sendMessage({
@@ -723,6 +777,8 @@ export const App: React.FC = () => {
           toX: targetX,
           toY: targetY,
           targetGhostId: targetGhost.id,
+          nextTurn,
+          turnNumber: nextTurnNumber,
         });
       } else {
         peerService.sendMessage({
@@ -730,6 +786,8 @@ export const App: React.FC = () => {
           ghostId: movingGhost.id,
           toX: targetX,
           toY: targetY,
+          nextTurn,
+          turnNumber: nextTurnNumber,
         });
       }
     }
@@ -739,8 +797,6 @@ export const App: React.FC = () => {
 
     const hasWon = checkWinConditions(nextCapturedList, updatedGhosts);
     if (hasWon) return;
-
-    const nextTurn: PlayerRole = turn === 'p1' ? 'p2' : 'p1';
 
     // In Pass & Play: Activate Battleship Privacy Shield before handing over!
     if (gameMode === 'pass-and-play') {
@@ -771,6 +827,7 @@ export const App: React.FC = () => {
 
     setTurn(pendingNextPlayer);
     setLocalPlayer(pendingNextPlayer);
+    localPlayerRef.current = pendingNextPlayer;
     setTurnNumber((t) => t + 1);
   };
 
@@ -780,11 +837,17 @@ export const App: React.FC = () => {
     const ghost = ghostsRef.current.find((g) => g.id === selectedGhostId);
     if (!ghost || ghost.color !== 'blue') return;
 
-    // Check exit requirements (p1 exits at y=5, p2 exits at y=0)
+    // Check exit requirements (in online/AI mode, player advances to y=5; in pass & play, p1 to y=5, p2 to y=0)
+    const isOnlineExit =
+      gameMode === 'online' &&
+      ghost.owner === localPlayerRef.current &&
+      ghost.y === 5 &&
+      (ghost.x === 0 || ghost.x === 5);
+
     const isP1Exit = ghost.owner === 'p1' && ghost.y === 5 && (ghost.x === 0 || ghost.x === 5);
     const isP2Exit = ghost.owner === 'p2' && ghost.y === 0 && (ghost.x === 0 || ghost.x === 5);
 
-    if (!isP1Exit && !isP2Exit) return;
+    if (!isOnlineExit && !isP1Exit && !isP2Exit) return;
 
     soundManager.playEscape();
 

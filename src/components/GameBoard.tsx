@@ -46,8 +46,16 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   const toGlobalX = (dispX: number) => (flipPerspective ? 5 - dispX : dispX);
   const toGlobalY = (dispY: number) => (flipPerspective ? 5 - dispY : dispY);
 
+  const isTouchDevice =
+    typeof window !== 'undefined' &&
+    ('ontouchstart' in window || (Boolean(navigator.maxTouchPoints) && navigator.maxTouchPoints > 0));
+
   // Drag and drop handlers
   const handleDragStart = (e: React.DragEvent, ghost: Ghost) => {
+    if (isTouchDevice) {
+      e.preventDefault();
+      return;
+    }
     if (!isMyTurn && !isSetupPhase) {
       e.preventDefault();
       return;
@@ -170,7 +178,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                           className={`ghost-wrapper ${
                             ghostOnTile.owner === activePlayer ? 'own-ghost' : 'opponent-ghost'
                           }`}
-                          draggable={ghostOnTile.owner === activePlayer && (isMyTurn || isSetupPhase)}
+                          draggable={!isTouchDevice && ghostOnTile.owner === activePlayer && (isMyTurn || isSetupPhase)}
                           onDragStart={(e) => handleDragStart(e, ghostOnTile)}
                           onClick={(e) => {
                             e.stopPropagation();
