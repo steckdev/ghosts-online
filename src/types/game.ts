@@ -103,6 +103,10 @@ export type NetworkMessage =
       capturedGhosts: CapturedGhost[];
     }
   | {
+      type: 'STATE_SYNC_REQUEST';
+      fromRole: PlayerRole;
+    }
+  | {
       type: 'PING';
     }
   | {

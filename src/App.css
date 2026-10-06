@@ -229,43 +229,112 @@
 }
 
 .turn-neon-border {
-  padding: 0.35rem 0.85rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0.95rem;
   border-radius: 9999px;
   font-weight: 800;
   font-size: 0.82rem;
   letter-spacing: 1.5px;
   text-transform: uppercase;
   user-select: none;
-  transition: all 0.3s ease;
+  transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+/* Pulsing aura beacon inside turn badge */
+.turn-pulse-beacon {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+  transition: background-color 0.3s ease;
+}
+
+.turn-mine .turn-pulse-beacon {
+  background: #ff3d00;
+  box-shadow: 0 0 8px #ff3d00, 0 0 14px #ff6e40;
+  animation: beaconPulseRed 1.4s infinite ease-in-out;
+}
+
+.turn-opponent .turn-pulse-beacon {
+  background: #00b0ff;
+  box-shadow: 0 0 6px #00b0ff;
+  opacity: 0.6;
+  animation: beaconPulseBlue 2.4s infinite ease-in-out;
 }
 
 .turn-mine .turn-neon-border {
-  background: rgba(220, 38, 38, 0.18);
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.2), rgba(255, 61, 0, 0.35), rgba(239, 68, 68, 0.2));
+  background-size: 200% 200%;
   border: 1.5px solid #ff3d00;
   color: #ffffff;
   box-shadow:
-    0 0 10px rgba(255, 61, 0, 0.7),
-    inset 0 0 8px rgba(255, 61, 0, 0.4);
-  text-shadow: 0 0 6px #ff6e40;
-  animation: turnPulseRed 1.8s infinite ease-in-out;
+    0 0 14px rgba(255, 61, 0, 0.75),
+    inset 0 0 10px rgba(255, 61, 0, 0.45);
+  text-shadow: 0 0 8px #ff6e40;
+  animation:
+    turnPulseRed 2s infinite ease-in-out,
+    turnSpectralSweep 3.5s infinite linear;
+  transform: scale(1.02);
 }
 
 .turn-opponent .turn-neon-border {
-  background: rgba(14, 165, 233, 0.15);
-  border: 1.5px solid #00b0ff;
-  color: #e0f2fe;
+  background: rgba(14, 165, 233, 0.12);
+  border: 1.5px solid rgba(0, 176, 255, 0.55);
+  color: #bae6fd;
   box-shadow:
-    0 0 10px rgba(0, 176, 255, 0.6),
-    inset 0 0 8px rgba(0, 176, 255, 0.3);
+    0 0 8px rgba(0, 176, 255, 0.4),
+    inset 0 0 6px rgba(0, 176, 255, 0.2);
   text-shadow: 0 0 6px #38bdf8;
+  transform: scale(0.98);
+}
+
+@keyframes beaconPulseRed {
+  0%, 100% {
+    transform: scale(0.85);
+    box-shadow: 0 0 6px #ff3d00, 0 0 10px #ff6e40;
+    opacity: 0.85;
+  }
+  50% {
+    transform: scale(1.35);
+    box-shadow: 0 0 12px #ff3d00, 0 0 20px #ff9e80;
+    opacity: 1;
+  }
+}
+
+@keyframes beaconPulseBlue {
+  0%, 100% {
+    transform: scale(0.9);
+    opacity: 0.5;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 0.9;
+  }
+}
+
+@keyframes turnSpectralSweep {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
 }
 
 @keyframes turnPulseRed {
   0%, 100% {
-    box-shadow: 0 0 8px rgba(255, 61, 0, 0.6), inset 0 0 6px rgba(255, 61, 0, 0.3);
+    box-shadow: 0 0 10px rgba(255, 61, 0, 0.6), inset 0 0 8px rgba(255, 61, 0, 0.35);
   }
   50% {
-    box-shadow: 0 0 18px rgba(255, 61, 0, 0.95), inset 0 0 12px rgba(255, 61, 0, 0.6);
+    box-shadow: 0 0 20px rgba(255, 61, 0, 0.95), inset 0 0 14px rgba(255, 61, 0, 0.6);
   }
 }
 
@@ -677,19 +746,32 @@
   transform: translateY(-3px) scale(1.05);
 }
 
-/* Ghost Piece Container & Animations */
+/* Ghost Piece Container & Turn-Based Motion */
 .ghost-piece-container {
-  animation: ghostHover 3s infinite ease-in-out;
+  transition: transform 0.25s ease;
+}
+
+/* When it is YOUR turn, your own ghosts gently hover and breathe */
+.ghost-wrapper.own-ghost.is-my-turn-active .ghost-piece-container {
+  animation: ghostTurnFloat 2.6s ease-in-out infinite;
+}
+
+.ghost-wrapper.own-ghost.is-my-turn-active:nth-child(even) .ghost-piece-container {
+  animation-delay: 0.65s;
 }
 
 .ghost-piece-container.selected {
-  animation: ghostHoverSelected 1.2s infinite ease-in-out;
+  animation: ghostHoverSelected 1.2s infinite ease-in-out !important;
   transform: scale(1.12);
 }
 
-@keyframes ghostHover {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-4px); }
+@keyframes ghostTurnFloat {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3.5px);
+  }
 }
 
 @keyframes ghostHoverSelected {

@@ -81,7 +81,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
       {/* 80s Arcade Neon Spooky Title */}
       <div className="lobby-header">
         <div className="arcade-badge">1982 ALEX RANDOLPH CLASSIC</div>
-        <h1 className="lobby-title-glow">GHOSTS 80s</h1>
+        <h1 className="lobby-title-glow">GHOSTS</h1>
         <p className="lobby-subtitle">
           The Classic Game of Bluffing & Asymmetric Deduction
         </p>

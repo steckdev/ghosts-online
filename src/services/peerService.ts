@@ -2,7 +2,7 @@ import Peer, { type DataConnection } from 'peerjs';
 import type { NetworkMessage } from '../types/game';
 
 // Prefix to avoid collisions on free PeerJS public broker
-const PEER_PREFIX = 'ghosts80s-';
+const PEER_PREFIX = 'goodghosts-';
 
 const ICE_SERVERS = [
   { urls: 'stun:stun.l.google.com:19302' },

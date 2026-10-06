@@ -69,7 +69,7 @@ export const HeaderHud: React.FC<HeaderHudProps> = ({
         </button>
 
         <div className="game-title-wrapper">
-          <h1 className="game-title-glow">GHOSTS 80s</h1>
+          <h1 className="game-title-glow">GHOSTS</h1>
           <span className="game-subtitle">Alex Randolph 1982</span>
         </div>
 
@@ -139,9 +139,10 @@ export const HeaderHud: React.FC<HeaderHudProps> = ({
           )}
         </div>
 
-        {/* Neon Turn Badge */}
+        {/* Neon Turn Badge with dynamic motion indicator */}
         <div className={`turn-sign ${isMyTurn ? 'turn-mine' : 'turn-opponent'}`}>
           <div className="turn-neon-border">
+            <span className="turn-pulse-beacon" />
             <span className="turn-text">
               {isMyTurn ? 'YOUR TURN' : "OPPONENT'S TURN"}
             </span>

@@ -41,7 +41,7 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose }) => {
                 <GhostPiece color="red" size={48} />
                 <div className="card-info">
                   <strong>4 Bad Ghosts (Red)</strong>
-                  <span>Devil-horned poison pills with fiery red auras. Bait your opponent into capturing them!</span>
+                  <span>Ruby-glowing mischievous spirits with red neon cores. Bait your opponent into capturing them!</span>
                 </div>
               </div>
 
@@ -78,8 +78,8 @@ export const RulesModal: React.FC<RulesModalProps> = ({ isOpen, onClose }) => {
                 <div className="win-icon-wrapper">
                   <DoorOpen size={28} className="win-icon green-icon" />
                 </div>
-                <h4>3. The Great Escape</h4>
-                <p>Move one of your <strong>Good (Blue)</strong> ghosts onto an opponent's corner Exit Gate and step off the board on your next turn!</p>
+                <h4>3. Corner Door Escape</h4>
+                <p>Move one of your <strong>Good (Blue)</strong> ghosts onto either opponent corner gate and step out of the dungeon to win immediately!</p>
               </div>
             </div>
           </div>

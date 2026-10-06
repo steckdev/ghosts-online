@@ -6,7 +6,7 @@ import type { Ghost, PlayerRole, CapturedGhost, NetworkMessage } from '../types/
 // Simulation Harness representing the client game state on either device
 class SimulatedPlayerClient {
   public role: PlayerRole;
-  public gameMode: 'online' = 'online';
+  public gameMode = 'online' as const;
   public turn: PlayerRole = 'p1';
   public turnNumber: number = 1;
   public ghosts: Ghost[] = [];
@@ -177,6 +177,58 @@ class SimulatedPlayerClient {
         color: msg.revealedColor,
         turnNumber: this.turnNumber,
       });
+      return null;
+    }
+
+    if (msg.type === 'STATE_SYNC_REQUEST') {
+      return {
+        type: 'STATE_SYNC',
+        ghosts: this.ghosts.map((g) => ({
+          id: g.id,
+          x: g.x,
+          y: g.y,
+          isCaptured: g.isCaptured,
+          hasEscaped: g.hasEscaped,
+          color: g.isCaptured || g.hasEscaped ? g.color : 'unknown',
+        })),
+        turn: this.turn,
+        turnNumber: this.turnNumber,
+        capturedGhosts: this.capturedGhosts,
+      };
+    }
+
+    if (msg.type === 'STATE_SYNC') {
+      const oppPieces: Ghost[] = msg.ghosts
+        .filter((g) => g.id.startsWith(oppRole))
+        .map((g) => ({
+          id: g.id,
+          owner: oppRole,
+          color: g.color || 'unknown',
+          x: 5 - g.x,
+          y: 5 - g.y,
+          isCaptured: g.isCaptured,
+          hasEscaped: g.hasEscaped,
+        }));
+
+      const myUpdated = this.mySecretGhosts.map((myG) => {
+        const match = msg.ghosts.find((g) => g.id === myG.id);
+        if (match) {
+          return {
+            ...myG,
+            x: 5 - match.x,
+            y: 5 - match.y,
+            isCaptured: match.isCaptured,
+            hasEscaped: match.hasEscaped,
+          };
+        }
+        return myG;
+      });
+
+      this.ghosts = [...myUpdated, ...oppPieces];
+      this.mySecretGhosts = myUpdated;
+      this.turn = msg.turn;
+      this.turnNumber = msg.turnNumber;
+      this.capturedGhosts = msg.capturedGhosts;
       return null;
     }
 
@@ -377,5 +429,47 @@ describe('Full 2-Player Multiplayer Simulation & Sync Validation', () => {
     expect(guest.winner).toBe('p2');
     expect(guest.winReason).toBe('escaped');
     expect(guest.sentMessages.some((m) => m.type === 'ESCAPE')).toBe(true);
+  });
+
+  it('recovers full match state upon reload without resetting pieces to starting positions', () => {
+    const host = new SimulatedPlayerClient('p1', createInitialGhosts('p1'));
+    const guest = new SimulatedPlayerClient('p2', createInitialGhosts('p1'));
+
+    // Move 1: Host moves p1-ghost-4 to (1, 2)
+    host.selectGhost('p1-ghost-4');
+    const move1 = host.moveGhost(1, 2)!;
+    guest.receiveMessage(move1);
+
+    // Move 2: Guest moves p2-ghost-4 to (1, 2)
+    guest.selectGhost('p2-ghost-4');
+    const move2 = guest.moveGhost(1, 2)!;
+    host.receiveMessage(move2);
+
+    expect(guest.turn).toBe('p1');
+    expect(guest.turnNumber).toBe(3);
+
+    // SIMULATE RELOAD: Guest refreshes the page!
+    // Instead of resetting to starting rows (y=0,1), Guest rejoins and requests live state sync:
+    const reloadedGuest = new SimulatedPlayerClient('p2', createInitialGhosts('p1'));
+    const syncRequest: NetworkMessage = { type: 'STATE_SYNC_REQUEST', fromRole: 'p2' };
+
+    // Host responds with current live board
+    const syncResponse = host.receiveMessage(syncRequest)!;
+    expect(syncResponse).not.toBeNull();
+    expect(syncResponse.type).toBe('STATE_SYNC');
+
+    // Reloaded guest applies the state sync
+    reloadedGuest.receiveMessage(syncResponse);
+
+    // Verify pieces are NOT at starting positions!
+    // Host's moved piece p1-ghost-4 is at (4, 3) on Guest's board (not at starting 4, 4)
+    const hostPieceOnGuest = reloadedGuest.ghosts.find((g) => g.id === 'p1-ghost-4');
+    expect(hostPieceOnGuest?.x).toBe(4);
+    expect(hostPieceOnGuest?.y).toBe(3);
+
+    // Turn and turnNumber are fully preserved
+    expect(reloadedGuest.turn).toBe('p1');
+    expect(reloadedGuest.turnNumber).toBe(3);
+    expect(reloadedGuest.isMyTurn).toBe(false);
   });
 });

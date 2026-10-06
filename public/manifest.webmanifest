@@ -1,6 +1,6 @@
 {
-  "name": "Ghosts 80s - Classic Randolph Board Game",
-  "short_name": "Ghosts 80s",
+  "name": "Ghosts - Classic Randolph Board Game",
+  "short_name": "Ghosts",
   "description": "Alex Randolph's 1982 classic board game of asymmetric deduction and bluffing",
   "start_url": "/",
   "display": "standalone",

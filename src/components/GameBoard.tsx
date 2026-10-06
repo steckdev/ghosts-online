@@ -94,7 +94,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
           onEscapeClick={onEscapeClick}
         />
         <div className="exit-gates-spacer">
-          <div className="corridor-runes">⚡ ESCAPE CORRIDOR ⚡</div>
+          <div className="corridor-runes">⚡ CORNER ESCAPE GATES ⚡</div>
         </div>
         <ExitGate
           side="right"
@@ -177,7 +177,7 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                         <div
                           className={`ghost-wrapper ${
                             ghostOnTile.owner === activePlayer ? 'own-ghost' : 'opponent-ghost'
-                          }`}
+                          } ${ghostOnTile.owner === activePlayer && isMyTurn ? 'is-my-turn-active' : ''}`}
                           draggable={!isTouchDevice && ghostOnTile.owner === activePlayer && (isMyTurn || isSetupPhase)}
                           onDragStart={(e) => handleDragStart(e, ghostOnTile)}
                           onClick={(e) => {

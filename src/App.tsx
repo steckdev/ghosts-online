@@ -27,15 +27,32 @@ import {
   createInitialOpponentGhosts,
   shuffleGhostColors,
 } from './utils/ghostUtils';
+import {
+  saveActiveSession,
+  loadActiveSession,
+  clearActiveSession,
+  type SavedGameSession,
+} from './utils/sessionStorage';
 import './App.css';
 
 export const App: React.FC = () => {
+  const [initialSession] = useState<SavedGameSession | null>(() => {
+    const paramCode =
+      typeof window !== 'undefined'
+        ? new URLSearchParams(window.location.search).get('room')?.toUpperCase() || undefined
+        : undefined;
+    const saved = loadActiveSession(paramCode);
+    return saved && saved.ghosts.length > 0 && saved.status === 'playing' ? saved : null;
+  });
+
   // Game states
-  const [gameMode, setGameMode] = useState<GameMode>('ai');
-  const [gameStatus, setGameStatus] = useState<'lobby' | 'waiting' | 'playing' | 'gameover'>('lobby');
-  const [localPlayer, setLocalPlayer] = useState<PlayerRole>('p1');
-  const [turn, setTurn] = useState<PlayerRole>('p1');
-  const [turnNumber, setTurnNumber] = useState<number>(1);
+  const [gameMode, setGameMode] = useState<GameMode>(() => initialSession?.gameMode || 'ai');
+  const [gameStatus, setGameStatus] = useState<'lobby' | 'waiting' | 'playing' | 'gameover'>(
+    () => initialSession?.status || 'lobby'
+  );
+  const [localPlayer, setLocalPlayer] = useState<PlayerRole>(() => initialSession?.localPlayer || 'p1');
+  const [turn, setTurn] = useState<PlayerRole>(() => initialSession?.turn || 'p1');
+  const [turnNumber, setTurnNumber] = useState<number>(() => initialSession?.turnNumber || 1);
   const [winner, setWinner] = useState<PlayerRole | undefined>(undefined);
   const [winReason, setWinReason] = useState<WinReason | undefined>(undefined);
 
@@ -51,12 +68,12 @@ export const App: React.FC = () => {
   const [lastCapturedInfo, setLastCapturedInfo] = useState<{ color: 'blue' | 'red'; capturer: PlayerRole } | undefined>(undefined);
 
   // Ghosts on the board
-  const [ghosts, setGhosts] = useState<Ghost[]>([]);
-  const ghostsRef = useRef<Ghost[]>([]);
+  const [ghosts, setGhosts] = useState<Ghost[]>(() => initialSession?.ghosts || []);
+  const ghostsRef = useRef<Ghost[]>(initialSession?.ghosts || []);
 
   // Secret ghosts memory
-  const [mySecretGhosts, setMySecretGhosts] = useState<Ghost[]>([]);
-  const mySecretGhostsRef = useRef<Ghost[]>([]);
+  const [mySecretGhosts, setMySecretGhosts] = useState<Ghost[]>(() => initialSession?.mySecretGhosts || []);
+  const mySecretGhostsRef = useRef<Ghost[]>(initialSession?.mySecretGhosts || []);
 
   // AI secret colors dictionary
   const aiSecretColorsRef = useRef<Record<string, 'blue' | 'red'>>({});
@@ -65,15 +82,20 @@ export const App: React.FC = () => {
   const [validMoves, setValidMoves] = useState<{ x: number; y: number; isExit?: boolean }[]>([]);
 
   // Synchronous ref for captured ghosts
-  const [capturedGhosts, setCapturedGhosts] = useState<CapturedGhost[]>([]);
-  const capturedGhostsRef = useRef<CapturedGhost[]>([]);
-  const localPlayerRef = useRef<PlayerRole>('p1');
-  const turnNumberRef = useRef<number>(1);
+  const [capturedGhosts, setCapturedGhosts] = useState<CapturedGhost[]>(() => initialSession?.capturedGhosts || []);
+  const capturedGhostsRef = useRef<CapturedGhost[]>(initialSession?.capturedGhosts || []);
+  const localPlayerRef = useRef<PlayerRole>(initialSession?.localPlayer || 'p1');
+  const turnRef = useRef<PlayerRole>(initialSession?.turn || 'p1');
+  const turnNumberRef = useRef<number>(initialSession?.turnNumber || 1);
   const latestNetworkHandlerRef = useRef<(msg: NetworkMessage) => void>(() => {});
 
   useEffect(() => {
     localPlayerRef.current = localPlayer;
   }, [localPlayer]);
+
+  useEffect(() => {
+    turnRef.current = turn;
+  }, [turn]);
 
   useEffect(() => {
     turnNumberRef.current = turnNumber;
@@ -107,19 +129,86 @@ export const App: React.FC = () => {
 
   // P2P Online state
   const [roomCode, setRoomCode] = useState<string>(() => {
+    if (initialSession?.roomCode) return initialSession.roomCode;
     if (typeof window !== 'undefined') {
       return new URLSearchParams(window.location.search).get('room')?.toUpperCase() || '';
     }
     return '';
   });
-  const [isHost, setIsHost] = useState<boolean>(true);
+  const [isHost, setIsHost] = useState<boolean>(() => initialSession?.isHost ?? true);
   const [waitingStatusText, setWaitingStatusText] = useState<string>('Connecting to signaling network...');
   const [activeEmotes, setActiveEmotes] = useState<{ id: string; emoji: string; sender: 'me' | 'opponent' }[]>([]);
   const [isRulesOpen, setIsRulesOpen] = useState(false);
 
+  // Reconnect WebRTC session upon page reload if mid-match
   useEffect(() => {
     soundManager.initFromStorage();
-  }, []);
+
+    if (initialSession && initialSession.gameMode === 'online') {
+      if (initialSession.isHost) {
+        peerService
+          .createRoom(initialSession.roomCode)
+          .then(() => {
+            peerService.onPeerJoined = () => {
+              peerService.sendMessage({
+                type: 'STATE_SYNC',
+                ghosts: ghostsRef.current.map((g) => ({
+                  id: g.id,
+                  x: g.x,
+                  y: g.y,
+                  isCaptured: g.isCaptured,
+                  hasEscaped: g.hasEscaped,
+                  color: g.isCaptured || g.hasEscaped ? g.color : 'unknown',
+                })),
+                turn: turnRef.current,
+                turnNumber: turnNumberRef.current,
+                capturedGhosts: capturedGhostsRef.current,
+              });
+            };
+          })
+          .catch(console.error);
+      } else {
+        peerService
+          .joinRoom(initialSession.roomCode)
+          .then(() => {
+            peerService.sendMessage({
+              type: 'STATE_SYNC_REQUEST',
+              fromRole: 'p2',
+            });
+          })
+          .catch(console.error);
+      }
+    }
+  }, [initialSession]);
+
+  // Continuously persist active match state to survive future refreshes
+  useEffect(() => {
+    if (gameStatus === 'playing') {
+      saveActiveSession({
+        roomCode,
+        gameMode,
+        localPlayer,
+        isHost,
+        turn,
+        turnNumber,
+        ghosts,
+        mySecretGhosts,
+        capturedGhosts,
+        status: gameStatus,
+      });
+    }
+  }, [
+    gameStatus,
+    roomCode,
+    gameMode,
+    localPlayer,
+    isHost,
+    turn,
+    turnNumber,
+    ghosts,
+    mySecretGhosts,
+    capturedGhosts,
+  ]);
 
   // Check Win Conditions with exact evaluation
   const checkWinConditions = useCallback(
@@ -499,12 +588,29 @@ export const App: React.FC = () => {
         const syncedBoard = [...updatedMyPieces, ...updatedOppPieces];
         setGhosts(syncedBoard);
         ghostsRef.current = syncedBoard;
+        setMySecretGhosts(updatedMyPieces);
+        mySecretGhostsRef.current = updatedMyPieces;
         setTurn(msg.turn);
         setTurnNumber(msg.turnNumber);
         setCapturedGhosts(msg.capturedGhosts);
         capturedGhostsRef.current = msg.capturedGhosts;
         setGameStatus('playing');
         soundManager.playTurnAlert();
+      } else if (msg.type === 'STATE_SYNC_REQUEST') {
+        peerService.sendMessage({
+          type: 'STATE_SYNC',
+          ghosts: ghostsRef.current.map((g) => ({
+            id: g.id,
+            x: g.x,
+            y: g.y,
+            isCaptured: g.isCaptured,
+            hasEscaped: g.hasEscaped,
+            color: g.isCaptured || g.hasEscaped ? g.color : 'unknown',
+          })),
+          turn: turnRef.current,
+          turnNumber: turnNumberRef.current,
+          capturedGhosts: capturedGhostsRef.current,
+        });
       } else if (msg.type === 'MOVE') {
         const invX = 5 - msg.toX;
         const invY = 5 - msg.toY;
@@ -965,6 +1071,7 @@ export const App: React.FC = () => {
   };
 
   const handleResetGame = () => {
+    clearActiveSession();
     peerService.disconnect();
     setGameStatus('lobby');
     setWinner(undefined);
