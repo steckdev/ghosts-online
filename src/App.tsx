@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type {
   Ghost,
+  GhostColor,
   PlayerRole,
   GameMode,
   CapturedGhost,
@@ -340,7 +341,13 @@ export const App: React.FC = () => {
     setValidMoves([]);
     setIsPassShieldActive(false);
 
-    const p2Ghosts = initialGhosts.map((g) => ({ ...g, owner: 'p2' as const }));
+    const p2Ghosts = initialGhosts.map((g, idx) => ({
+      ...g,
+      id: `p2-ghost-${idx}`,
+      owner: 'p2' as const,
+      x: g.x,
+      y: g.y,
+    }));
     setMySecretGhosts(p2Ghosts);
     mySecretGhostsRef.current = p2Ghosts;
 
@@ -409,7 +416,7 @@ export const App: React.FC = () => {
   const handleNetworkMessage = useCallback(
     (msg: NetworkMessage) => {
       if (msg.type === 'SYNC_SETUP') {
-        const myPieces = ghostsRef.current.filter((g) => g.owner === localPlayer);
+        const myPieces = mySecretGhostsRef.current;
         const opponentRole: PlayerRole = localPlayer === 'p1' ? 'p2' : 'p1';
         const oppPieces: Ghost[] = msg.ghosts.map((g) => ({
           id: g.id,
@@ -430,6 +437,45 @@ export const App: React.FC = () => {
             ghosts: mySecretGhostsRef.current.map((g) => ({ id: g.id, x: g.x, y: g.y })),
           });
         }
+      } else if (msg.type === 'STATE_SYNC') {
+        const myPieces = mySecretGhostsRef.current;
+        const opponentRole: PlayerRole = localPlayer === 'p1' ? 'p2' : 'p1';
+
+        const updatedOppPieces: Ghost[] = msg.ghosts
+          .filter((g) => g.id.startsWith(opponentRole))
+          .map((g) => ({
+            id: g.id,
+            owner: opponentRole,
+            color: (g.color && g.color !== 'unknown' ? g.color : 'unknown') as GhostColor,
+            x: 5 - g.x,
+            y: 5 - g.y,
+            isCaptured: g.isCaptured,
+            hasEscaped: g.hasEscaped,
+          }));
+
+        const updatedMyPieces = myPieces.map((myG) => {
+          const syncMatch = msg.ghosts.find((g) => g.id === myG.id);
+          if (syncMatch) {
+            return {
+              ...myG,
+              x: 5 - syncMatch.x,
+              y: 5 - syncMatch.y,
+              isCaptured: syncMatch.isCaptured,
+              hasEscaped: syncMatch.hasEscaped,
+            };
+          }
+          return myG;
+        });
+
+        const syncedBoard = [...updatedMyPieces, ...updatedOppPieces];
+        setGhosts(syncedBoard);
+        ghostsRef.current = syncedBoard;
+        setTurn(msg.turn);
+        setTurnNumber(msg.turnNumber);
+        setCapturedGhosts(msg.capturedGhosts);
+        capturedGhostsRef.current = msg.capturedGhosts;
+        setGameStatus('playing');
+        soundManager.playTurnAlert();
       } else if (msg.type === 'MOVE') {
         const invX = 5 - msg.toX;
         const invY = 5 - msg.toY;
@@ -645,12 +691,19 @@ export const App: React.FC = () => {
         soundManager.playCaptureBad();
       }
 
+      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+        navigator.vibrate?.([25, 40, 25]);
+      }
+
       setLastCapturedInfo({
         color: revealedColor,
         capturer: movingGhost.owner,
       });
     } else {
       soundManager.playMove();
+      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+        navigator.vibrate?.(12);
+      }
       setLastCapturedInfo(undefined);
     }
 

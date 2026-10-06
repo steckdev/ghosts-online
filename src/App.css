@@ -2084,6 +2084,111 @@
   text-align: center;
 }
 
+/* Abandon Match Confirmation Modal */
+.abandon-modal-card {
+  background: #0d1117;
+  border: 2px solid #ef4444;
+  box-shadow: 0 0 35px rgba(239, 68, 68, 0.4);
+  border-radius: 14px;
+  padding: 1.5rem 1.25rem;
+  width: 90%;
+  max-width: 380px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.8rem;
+  animation: modalEnter 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.abandon-modal-icon {
+  background: rgba(239, 68, 68, 0.15);
+  border-radius: 50%;
+  padding: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.abandon-modal-title {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: #f8fafc;
+  margin: 0;
+}
+
+.abandon-modal-desc {
+  font-size: 0.85rem;
+  color: #94a3b8;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.abandon-modal-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 100%;
+  margin-top: 0.4rem;
+}
+
+.confirm-abandon-btn {
+  background: linear-gradient(135deg, #ef4444, #b91c1c);
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  font-size: 0.88rem;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
+}
+
+.confirm-abandon-btn:active {
+  transform: scale(0.98);
+}
+
+.cancel-abandon-btn {
+  background: transparent;
+  color: #94a3b8;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 0.65rem 1rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cancel-abandon-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: #ffffff;
+}
+
+/* Spirit Core Auras */
+.ghost-aura-blue {
+  position: absolute;
+  width: 60%;
+  height: 60%;
+  background: radial-gradient(circle, rgba(0, 229, 255, 0.35) 0%, transparent 70%);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.ghost-aura-red {
+  position: absolute;
+  width: 60%;
+  height: 60%;
+  background: radial-gradient(circle, rgba(255, 23, 68, 0.35) 0%, transparent 70%);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+
 
 
 

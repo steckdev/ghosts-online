@@ -85,6 +85,26 @@ export type NetworkMessage =
       type: 'REMATCH_ACCEPT';
     }
   | {
+      type: 'STATE_SYNC';
+      ghosts: {
+        id: string;
+        x: number;
+        y: number;
+        isCaptured?: boolean;
+        hasEscaped?: boolean;
+        color?: GhostColor;
+      }[];
+      turn: PlayerRole;
+      turnNumber: number;
+      capturedGhosts: CapturedGhost[];
+    }
+  | {
+      type: 'PING';
+    }
+  | {
+      type: 'PONG';
+    }
+  | {
       type: 'EMOTE';
       emoji: string;
       sender: PlayerRole;

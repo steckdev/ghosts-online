@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import type { PlayerRole, GameMode, CapturedGhost } from '../types/game';
-import { Volume2, VolumeX, HelpCircle, Copy, Check, Users, Bot, RefreshCw } from 'lucide-react';
+import { Volume2, VolumeX, HelpCircle, Copy, Check, Users, Bot, LogOut, AlertTriangle } from 'lucide-react';
 import { soundManager } from '../audio/soundEffects';
 
 interface HeaderHudProps {
@@ -24,6 +24,7 @@ export const HeaderHud: React.FC<HeaderHudProps> = ({
 }) => {
   const [copied, setCopied] = useState(false);
   const [muted, setMuted] = useState(soundManager.isMuted());
+  const [showAbandonConfirm, setShowAbandonConfirm] = useState(false);
 
   const handleToggleMute = () => {
     const next = soundManager.toggleMute();
@@ -37,6 +38,11 @@ export const HeaderHud: React.FC<HeaderHudProps> = ({
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
+  };
+
+  const handleConfirmAbandon = () => {
+    setShowAbandonConfirm(false);
+    onResetGame();
   };
 
   // Captured opponent ghosts (captured by local player)
@@ -77,12 +83,12 @@ export const HeaderHud: React.FC<HeaderHudProps> = ({
             {muted ? <VolumeX size={20} /> : <Volume2 size={20} />}
           </button>
           <button
-            className="hud-icon-btn restart-btn"
-            onClick={onResetGame}
-            title="Return to Menu / New Game"
-            aria-label="Restart"
+            className="hud-icon-btn abandon-btn"
+            onClick={() => setShowAbandonConfirm(true)}
+            title="Exit / Abandon Match"
+            aria-label="Exit Match"
           >
-            <RefreshCw size={18} />
+            <LogOut size={18} />
           </button>
         </div>
       </div>
@@ -156,6 +162,30 @@ export const HeaderHud: React.FC<HeaderHudProps> = ({
           </span>
         </div>
       </div>
+
+      {/* Abandon Match Confirmation Modal */}
+      {showAbandonConfirm && (
+        <div className="modal-backdrop" onClick={() => setShowAbandonConfirm(false)}>
+          <div className="abandon-modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="abandon-modal-icon">
+              <AlertTriangle size={36} color="#ff1744" />
+            </div>
+            <h3 className="abandon-modal-title">Abandon Match?</h3>
+            <p className="abandon-modal-desc">
+              Are you sure you want to exit to the main menu? Your current game progress will be lost.
+            </p>
+            <div className="abandon-modal-actions">
+              <button className="confirm-abandon-btn" onClick={handleConfirmAbandon}>
+                <LogOut size={16} />
+                <span>Yes, Abandon Match</span>
+              </button>
+              <button className="cancel-abandon-btn" onClick={() => setShowAbandonConfirm(false)}>
+                <span>Keep Playing</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </header>
   );
 };

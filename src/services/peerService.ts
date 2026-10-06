@@ -14,6 +14,7 @@ export class PeerService {
   private peer: Peer | null = null;
   private connection: DataConnection | null = null;
   private pendingQueue: NetworkMessage[] = [];
+  private pingInterval: number | null = null;
   public roomCode: string = '';
   public isHost: boolean = false;
 
@@ -22,6 +23,28 @@ export class PeerService {
   public onMessage?: (msg: NetworkMessage) => void;
   public onDisconnected?: () => void;
   public onError?: (err: Error) => void;
+
+  private startHeartbeat() {
+    this.stopHeartbeat();
+    if (typeof window !== 'undefined') {
+      this.pingInterval = window.setInterval(() => {
+        if (this.connection && this.connection.open) {
+          try {
+            this.connection.send({ type: 'PING' });
+          } catch {
+            // ignore
+          }
+        }
+      }, 4000);
+    }
+  }
+
+  private stopHeartbeat() {
+    if (this.pingInterval !== null) {
+      clearInterval(this.pingInterval);
+      this.pingInterval = null;
+    }
+  }
 
   public static generateRoomCode(): string {
     const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -159,6 +182,15 @@ export class PeerService {
     conn.on('data', (data) => {
       try {
         const msg = data as NetworkMessage;
+        if (msg.type === 'PING') {
+          if (conn.open) {
+            conn.send({ type: 'PONG' });
+          }
+          return;
+        }
+        if (msg.type === 'PONG') {
+          return;
+        }
         this.onMessage?.(msg);
       } catch (err) {
         console.error('Failed to parse network message', err);
@@ -166,15 +198,18 @@ export class PeerService {
     });
 
     conn.on('close', () => {
+      this.stopHeartbeat();
       this.onDisconnected?.();
     });
 
     conn.on('error', (err) => {
+      this.stopHeartbeat();
       this.onError?.(err);
     });
   }
 
   private flushQueue() {
+    this.startHeartbeat();
     if (this.connection && this.connection.open && this.pendingQueue.length > 0) {
       while (this.pendingQueue.length > 0) {
         const msg = this.pendingQueue.shift();
@@ -208,6 +243,7 @@ export class PeerService {
   }
 
   public disconnect() {
+    this.stopHeartbeat();
     this.pendingQueue = [];
     if (this.connection) {
       try {
