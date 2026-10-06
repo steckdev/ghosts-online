@@ -16,6 +16,7 @@ import { GameOverModal } from './components/GameOverModal';
 import { LobbyScreen } from './components/LobbyScreen';
 import { WaitingRoom } from './components/WaitingRoom';
 import { PassTurnOverlay } from './components/PassTurnOverlay';
+import { DungeonDecorations } from './components/DungeonDecorations';
 import { peerService } from './services/peerService';
 import { getValidMovesForGhost, calculateAIMove } from './services/aiService';
 import { soundManager } from './audio/soundEffects';
@@ -77,12 +78,10 @@ export const App: React.FC = () => {
   // Ghosts on the board
   const [ghosts, setGhosts] = useState<Ghost[]>([]);
   const ghostsRef = useRef<Ghost[]>([]);
-  ghostsRef.current = ghosts;
 
   // Secret ghosts memory
   const [mySecretGhosts, setMySecretGhosts] = useState<Ghost[]>([]);
   const mySecretGhostsRef = useRef<Ghost[]>([]);
-  mySecretGhostsRef.current = mySecretGhosts;
 
   // AI secret colors dictionary
   const aiSecretColorsRef = useRef<Record<string, 'blue' | 'red'>>({});
@@ -93,7 +92,18 @@ export const App: React.FC = () => {
   // Synchronous ref for captured ghosts
   const [capturedGhosts, setCapturedGhosts] = useState<CapturedGhost[]>([]);
   const capturedGhostsRef = useRef<CapturedGhost[]>([]);
-  capturedGhostsRef.current = capturedGhosts;
+
+  useEffect(() => {
+    ghostsRef.current = ghosts;
+  }, [ghosts]);
+
+  useEffect(() => {
+    mySecretGhostsRef.current = mySecretGhosts;
+  }, [mySecretGhosts]);
+
+  useEffect(() => {
+    capturedGhostsRef.current = capturedGhosts;
+  }, [capturedGhosts]);
 
   const [lastMove, setLastMove] = useState<{
     from: { x: number; y: number };
@@ -104,7 +114,12 @@ export const App: React.FC = () => {
   } | undefined>(undefined);
 
   // P2P Online state
-  const [roomCode, setRoomCode] = useState<string>('');
+  const [roomCode, setRoomCode] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return new URLSearchParams(window.location.search).get('room')?.toUpperCase() || '';
+    }
+    return '';
+  });
   const [isHost, setIsHost] = useState<boolean>(true);
   const [waitingStatusText, setWaitingStatusText] = useState<string>('Connecting to signaling network...');
   const [activeEmotes, setActiveEmotes] = useState<{ id: string; emoji: string; sender: 'me' | 'opponent' }[]>([]);
@@ -112,12 +127,6 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     soundManager.initFromStorage();
-
-    const params = new URLSearchParams(window.location.search);
-    const roomParam = params.get('room');
-    if (roomParam) {
-      setRoomCode(roomParam.toUpperCase());
-    }
   }, []);
 
   // Check Win Conditions with exact evaluation
@@ -362,6 +371,38 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleShowEmote = useCallback((emoji: string, sender: 'me' | 'opponent') => {
+    const id = `${Date.now()}-${Math.random()}`;
+    setActiveEmotes((prev) => [...prev, { id, emoji, sender }]);
+    setTimeout(() => {
+      setActiveEmotes((prev) => prev.filter((e) => e.id !== id));
+    }, 2500);
+  }, []);
+
+  const handleResetForRematch = useCallback(() => {
+    setWinner(undefined);
+    setWinReason(undefined);
+    setCapturedGhosts([]);
+    capturedGhostsRef.current = [];
+    setLastMove(undefined);
+    setSelectedGhostId(null);
+    setValidMoves([]);
+    setIsPassShieldActive(false);
+    setTurn('p1');
+    setTurnNumber(1);
+
+    const myRole = localPlayer;
+    const oppRole: PlayerRole = myRole === 'p1' ? 'p2' : 'p1';
+    const myPieces = mySecretGhostsRef.current;
+    const oppPieces = createInitialOpponentGhosts(oppRole);
+    const initialBoard = myRole === 'p1' ? [...myPieces, ...oppPieces] : [...oppPieces, ...myPieces];
+    setGhosts(initialBoard);
+    ghostsRef.current = initialBoard;
+
+    setGameStatus('playing');
+    soundManager.playTurnAlert();
+  }, [localPlayer]);
+
   // Network messages
   const handleNetworkMessage = useCallback(
     (msg: NetworkMessage) => {
@@ -491,20 +532,18 @@ export const App: React.FC = () => {
         setWinner(localPlayer === 'p1' ? 'p2' : 'p1');
         setWinReason('escaped');
         setGameStatus('gameover');
+      } else if (msg.type === 'REMATCH_REQUEST') {
+        handleResetForRematch();
+        peerService.sendMessage({
+          type: 'SYNC_SETUP',
+          ghosts: mySecretGhostsRef.current.map((g) => ({ id: g.id, x: g.x, y: g.y })),
+        });
       } else if (msg.type === 'EMOTE') {
         handleShowEmote(msg.emoji, 'opponent');
       }
     },
-    [localPlayer, turnNumber, checkWinConditions]
+    [localPlayer, turnNumber, checkWinConditions, handleShowEmote, handleResetForRematch]
   );
-
-  const handleShowEmote = (emoji: string, sender: 'me' | 'opponent') => {
-    const id = `${Date.now()}-${Math.random()}`;
-    setActiveEmotes((prev) => [...prev, { id, emoji, sender }]);
-    setTimeout(() => {
-      setActiveEmotes((prev) => prev.filter((e) => e.id !== id));
-    }, 2500);
-  };
 
   const handleSendEmote = (emoji: string) => {
     handleShowEmote(emoji, 'me');
@@ -812,6 +851,13 @@ export const App: React.FC = () => {
       handleStartAI(mySecretGhostsRef.current);
     } else if (gameMode === 'pass-and-play') {
       handleStartPassAndPlay(mySecretGhostsRef.current);
+    } else if (gameMode === 'online' && peerService.isConnected()) {
+      handleResetForRematch();
+      peerService.sendMessage({ type: 'REMATCH_REQUEST' });
+      peerService.sendMessage({
+        type: 'SYNC_SETUP',
+        ghosts: mySecretGhostsRef.current.map((g) => ({ id: g.id, x: g.x, y: g.y })),
+      });
     } else {
       handleCreateOnlineRoom(mySecretGhostsRef.current);
     }
@@ -832,6 +878,7 @@ export const App: React.FC = () => {
 
       {gameStatus === 'lobby' && (
         <LobbyScreen
+          key={roomCode}
           onStartAI={handleStartAI}
           onStartPassAndPlay={handleStartPassAndPlay}
           onCreateOnlineRoom={handleCreateOnlineRoom}
@@ -888,6 +935,8 @@ export const App: React.FC = () => {
                 onEscapeClick={handleEscapeClick}
               />
 
+              <DungeonDecorations />
+
               <EmoteBar onSendEmote={handleSendEmote} activeEmotes={activeEmotes} />
             </div>
 
@@ -905,8 +954,8 @@ export const App: React.FC = () => {
       {/* Battleship Privacy Shield Overlay for Pass & Play */}
       {isPassShieldActive && (
         <PassTurnOverlay
+          key={`pass-${pendingNextPlayer}-${turnNumber}`}
           nextPlayer={pendingNextPlayer}
-          turnNumber={turnNumber}
           lastCapturedInfo={lastCapturedInfo}
           onUnlocked={handlePassShieldUnlocked}
         />

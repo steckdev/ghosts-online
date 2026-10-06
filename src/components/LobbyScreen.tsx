@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import type { GameMode, Ghost } from '../types/game';
 import { Users, Bot, Smartphone, Shuffle, Play, ArrowRight, Sparkles, PlusCircle, LogIn } from 'lucide-react';
 import { GhostPiece } from './GhostPiece';
@@ -26,14 +26,6 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   const [joinCode, setJoinCode] = useState(prefilledRoomCode);
   const [ghosts, setGhosts] = useState<Ghost[]>(defaultGhosts);
   const [selectedSwapId, setSelectedSwapId] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (prefilledRoomCode) {
-      setSelectedMode('online');
-      setOnlineAction('join');
-      setJoinCode(prefilledRoomCode.toUpperCase());
-    }
-  }, [prefilledRoomCode]);
 
   // Quick shuffle player's 4 blue and 4 red ghost positions
   const handleShuffle = () => {

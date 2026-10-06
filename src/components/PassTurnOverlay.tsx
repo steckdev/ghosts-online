@@ -1,10 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { ShieldAlert, EyeOff, Lock, Unlock, Flame } from 'lucide-react';
 import { soundManager } from '../audio/soundEffects';
 
 interface PassTurnOverlayProps {
   nextPlayer: 'p1' | 'p2';
-  turnNumber: number;
   lastCapturedInfo?: {
     color: 'blue' | 'red';
     capturer: 'p1' | 'p2';
@@ -14,16 +13,10 @@ interface PassTurnOverlayProps {
 
 export const PassTurnOverlay: React.FC<PassTurnOverlayProps> = ({
   nextPlayer,
-  turnNumber,
   lastCapturedInfo,
   onUnlocked,
 }) => {
   const [tapCount, setTapCount] = useState(0);
-
-  // Reset taps whenever nextPlayer or turnNumber changes
-  useEffect(() => {
-    setTapCount(0);
-  }, [nextPlayer, turnNumber]);
 
   const handleTap = () => {
     const next = tapCount + 1;

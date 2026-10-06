@@ -1912,4 +1912,96 @@
   }
 }
 
+/* =========================================================================
+   DUNGEON DECORATIONS (Pumpkins, Candles matching input_file_0.png)
+   ========================================================================= */
+.dungeon-decorations-bar {
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  padding: 0.4rem 1rem 0;
+  margin-top: 0.2rem;
+  pointer-events: none;
+  user-select: none;
+}
+
+.pumpkin-wrapper {
+  width: clamp(52px, 13vw, 75px);
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.8));
+  transition: transform 0.2s ease;
+}
+
+.left-pumpkin {
+  transform: rotate(-4deg);
+}
+
+.right-pumpkin {
+  transform: rotate(5deg);
+}
+
+.pumpkin-svg {
+  width: 100%;
+  height: auto;
+}
+
+.flicker-flame {
+  animation: pumpkinFlicker 2.5s infinite alternate ease-in-out;
+}
+
+@keyframes pumpkinFlicker {
+  0% { opacity: 0.85; filter: drop-shadow(0 0 4px #ff9800); }
+  25% { opacity: 1; filter: drop-shadow(0 0 8px #ffeb3b); }
+  50% { opacity: 0.7; filter: drop-shadow(0 0 2px #ff5722); }
+  75% { opacity: 0.95; filter: drop-shadow(0 0 6px #ffeb3b); }
+  100% { opacity: 0.8; filter: drop-shadow(0 0 5px #ff9800); }
+}
+
+/* Candle Cluster */
+.candle-cluster {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.35rem;
+  padding-bottom: 4px;
+}
+
+.wax-candle {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.candle-1 .candle-body { width: 10px; height: 26px; }
+.candle-2 .candle-body { width: 12px; height: 34px; }
+.candle-3 .candle-body { width: 9px; height: 20px; }
+
+.candle-body {
+  background: linear-gradient(180deg, #fef3c7 0%, #d97706 70%, #92400e 100%);
+  border-radius: 2px 2px 0 0;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.6);
+}
+
+.candle-flame {
+  width: 8px;
+  height: 12px;
+  background: radial-gradient(circle at 50% 70%, #ffeb3b 0%, #ff5722 75%, transparent 100%);
+  border-radius: 50% 50% 20% 20%;
+  filter: drop-shadow(0 0 5px #ff9800);
+}
+
+.pulse-flame {
+  animation: flameWaver 1.8s infinite alternate ease-in-out;
+}
+
+.pulse-flame-alt {
+  animation: flameWaver 2.2s infinite alternate-reverse ease-in-out;
+}
+
+@keyframes flameWaver {
+  0% { transform: scale(1) skewX(0deg); opacity: 0.85; }
+  50% { transform: scale(1.1, 1.2) skewX(4deg); opacity: 1; }
+  100% { transform: scale(0.9, 0.95) skewX(-3deg); opacity: 0.8; }
+}
+
+
 
