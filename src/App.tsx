@@ -15,6 +15,7 @@ import { RulesModal } from './components/RulesModal';
 import { GameOverModal } from './components/GameOverModal';
 import { LobbyScreen } from './components/LobbyScreen';
 import { WaitingRoom } from './components/WaitingRoom';
+import { PassTurnOverlay } from './components/PassTurnOverlay';
 import { peerService } from './services/peerService';
 import { getValidMovesForGhost, calculateAIMove } from './services/aiService';
 import { soundManager } from './audio/soundEffects';
@@ -22,7 +23,6 @@ import './App.css';
 
 // Default 8 ghosts for starting player (4 blue, 4 red)
 function createInitialGhosts(owner: PlayerRole): Ghost[] {
-  // Central 4 slots of back 2 rows: (x=1..4, y=0..1)
   const defaultLayout: { x: number; y: number; color: 'blue' | 'red' }[] = [
     { x: 1, y: 0, color: 'blue' },
     { x: 2, y: 0, color: 'red' },
@@ -45,7 +45,6 @@ function createInitialGhosts(owner: PlayerRole): Ghost[] {
 
 // Create initial opponent ghosts with hidden color
 function createInitialOpponentGhosts(owner: PlayerRole): Ghost[] {
-  // From player's perspective, opponent is at top (y=4 and y=5, columns 1..4)
   const slots = [
     { x: 1, y: 5 }, { x: 2, y: 5 }, { x: 3, y: 5 }, { x: 4, y: 5 },
     { x: 1, y: 4 }, { x: 2, y: 4 }, { x: 3, y: 4 }, { x: 4, y: 4 },
@@ -70,23 +69,28 @@ export const App: React.FC = () => {
   const [winner, setWinner] = useState<PlayerRole | undefined>(undefined);
   const [winReason, setWinReason] = useState<WinReason | undefined>(undefined);
 
+  // Pass & Play Privacy Shield State
+  const [isPassShieldActive, setIsPassShieldActive] = useState<boolean>(false);
+  const [pendingNextPlayer, setPendingNextPlayer] = useState<PlayerRole>('p2');
+  const [lastCapturedInfo, setLastCapturedInfo] = useState<{ color: 'blue' | 'red'; capturer: PlayerRole } | undefined>(undefined);
+
   // Ghosts on the board
   const [ghosts, setGhosts] = useState<Ghost[]>([]);
   const ghostsRef = useRef<Ghost[]>([]);
   ghostsRef.current = ghosts;
 
-  // Store true colors of local ghosts (anti-cheating: remote only knows upon capture)
+  // Secret ghosts memory
   const [mySecretGhosts, setMySecretGhosts] = useState<Ghost[]>([]);
   const mySecretGhostsRef = useRef<Ghost[]>([]);
   mySecretGhostsRef.current = mySecretGhosts;
 
-  // In AI mode, we keep AI's secret colors locally
+  // AI secret colors dictionary
   const aiSecretColorsRef = useRef<Record<string, 'blue' | 'red'>>({});
 
   const [selectedGhostId, setSelectedGhostId] = useState<string | null>(null);
   const [validMoves, setValidMoves] = useState<{ x: number; y: number; isExit?: boolean }[]>([]);
 
-  // Captured ghosts tracking with synchronous Ref to prevent stale closures
+  // Synchronous ref for captured ghosts
   const [capturedGhosts, setCapturedGhosts] = useState<CapturedGhost[]>([]);
   const capturedGhostsRef = useRef<CapturedGhost[]>([]);
   capturedGhostsRef.current = capturedGhosts;
@@ -106,7 +110,6 @@ export const App: React.FC = () => {
   const [activeEmotes, setActiveEmotes] = useState<{ id: string; emoji: string; sender: 'me' | 'opponent' }[]>([]);
   const [isRulesOpen, setIsRulesOpen] = useState(false);
 
-  // Sound initialization and URL parameter room check
   useEffect(() => {
     soundManager.initFromStorage();
 
@@ -142,14 +145,12 @@ export const App: React.FC = () => {
       const p2CapturedRedFromP1 = currentCaptured.filter((g) => g.owner === 'p1' && g.color === 'red').length;
 
       if (p1CapturedRedFromP2 >= 4) {
-        // P1 mistakenly captured all 4 of P2's red ghosts -> P2 wins!
         setWinner('p2');
         setWinReason('captured_all_red');
         setGameStatus('gameover');
         return true;
       }
       if (p2CapturedRedFromP1 >= 4) {
-        // P2 mistakenly captured all 4 of P1's red ghosts -> P1 wins!
         setWinner('p1');
         setWinReason('captured_all_red');
         setGameStatus('gameover');
@@ -181,12 +182,12 @@ export const App: React.FC = () => {
     setLastMove(undefined);
     setSelectedGhostId(null);
     setValidMoves([]);
+    setIsPassShieldActive(false);
 
     const p1Ghosts = initialGhosts.map((g) => ({ ...g, owner: 'p1' as const }));
     setMySecretGhosts(p1Ghosts);
     mySecretGhostsRef.current = p1Ghosts;
 
-    // AI's 8 ghosts at top (y=4,5, x=1..4)
     const aiColors: ('blue' | 'red')[] = ['blue', 'blue', 'blue', 'blue', 'red', 'red', 'red', 'red'];
     for (let i = aiColors.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -219,7 +220,7 @@ export const App: React.FC = () => {
     setGameStatus('playing');
   };
 
-  // Setup Pass & Play
+  // Setup Pass & Play (Battleship Hidden Screen Mode)
   const handleStartPassAndPlay = (initialGhosts: Ghost[]) => {
     setGameMode('pass-and-play');
     setLocalPlayer('p1');
@@ -230,8 +231,12 @@ export const App: React.FC = () => {
     setLastMove(undefined);
     setSelectedGhostId(null);
     setValidMoves([]);
+    setIsPassShieldActive(false);
 
+    // Player 1's starting arrangement
     const p1Ghosts = initialGhosts.map((g) => ({ ...g, owner: 'p1' as const }));
+
+    // Player 2's starting arrangement (secret 4 blue + 4 red)
     const p2Colors: ('blue' | 'red')[] = ['blue', 'blue', 'blue', 'blue', 'red', 'red', 'red', 'red'];
     for (let i = p2Colors.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -271,13 +276,13 @@ export const App: React.FC = () => {
     setLastMove(undefined);
     setSelectedGhostId(null);
     setValidMoves([]);
+    setIsPassShieldActive(false);
     setWaitingStatusText('Connecting to peer-to-peer signaling network...');
 
     const p1Ghosts = initialGhosts.map((g) => ({ ...g, owner: 'p1' as const }));
     setMySecretGhosts(p1Ghosts);
     mySecretGhostsRef.current = p1Ghosts;
 
-    // Immediately enter Waiting Room so the user sees feedback!
     setGameStatus('waiting');
 
     try {
@@ -292,7 +297,6 @@ export const App: React.FC = () => {
 
       peerService.onPeerJoined = () => {
         soundManager.playTurnAlert();
-        // Send setup sync to guest
         peerService.sendMessage({
           type: 'SYNC_SETUP',
           ghosts: p1Ghosts.map((g) => ({ id: g.id, x: g.x, y: g.y })),
@@ -315,13 +319,14 @@ export const App: React.FC = () => {
     setGameMode('online');
     setLocalPlayer('p2');
     setIsHost(false);
-    setTurn('p1'); // Host moves first
+    setTurn('p1');
     setTurnNumber(1);
     setCapturedGhosts([]);
     capturedGhostsRef.current = [];
     setLastMove(undefined);
     setSelectedGhostId(null);
     setValidMoves([]);
+    setIsPassShieldActive(false);
 
     const p2Ghosts = initialGhosts.map((g) => ({ ...g, owner: 'p2' as const }));
     setMySecretGhosts(p2Ghosts);
@@ -357,7 +362,7 @@ export const App: React.FC = () => {
     }
   };
 
-  // Process incoming network messages
+  // Network messages
   const handleNetworkMessage = useCallback(
     (msg: NetworkMessage) => {
       if (msg.type === 'SYNC_SETUP') {
@@ -504,10 +509,15 @@ export const App: React.FC = () => {
     }
   };
 
+  // Active player in current turn (In Pass & Play, active player is the current turn player!)
+  const activeTurnPlayer = gameMode === 'pass-and-play' ? turn : localPlayer;
+  const isMyTurnNow = gameMode === 'pass-and-play' ? true : turn === localPlayer;
+
   // Player selection
   const handleSelectGhost = (ghost: Ghost) => {
-    if (turn !== localPlayer && gameMode !== 'pass-and-play') return;
+    if (!isMyTurnNow) return;
     if (gameStatus !== 'playing') return;
+    if (isPassShieldActive) return;
 
     soundManager.playSelect();
     if (selectedGhostId === ghost.id) {
@@ -517,13 +527,15 @@ export const App: React.FC = () => {
     }
 
     setSelectedGhostId(ghost.id);
-    const moves = getValidMovesForGhost(ghost, ghostsRef.current, ghost.owner);
+    const moves = getValidMovesForGhost(ghost, ghostsRef.current, ghost.owner, true);
     setValidMoves(moves);
   };
 
-  // Tile click / move execution
+  // Move execution
   const handleTileClick = (targetX: number, targetY: number) => {
     if (!selectedGhostId) return;
+    if (isPassShieldActive) return;
+
     const movingGhost = ghostsRef.current.find((g) => g.id === selectedGhostId);
     if (!movingGhost) return;
 
@@ -544,12 +556,11 @@ export const App: React.FC = () => {
       isCapture = true;
       if (gameMode === 'ai') {
         revealedColor = aiSecretColorsRef.current[targetGhost.id] || 'blue';
-      } else if (gameMode === 'pass-and-play') {
+      } else {
         revealedColor = targetGhost.color as 'blue' | 'red';
       }
     }
 
-    // Build updated ghost array
     const updatedGhosts = ghostsRef.current.map((g) => {
       if (targetGhost && g.id === targetGhost.id) {
         return {
@@ -584,8 +595,14 @@ export const App: React.FC = () => {
       } else {
         soundManager.playCaptureBad();
       }
+
+      setLastCapturedInfo({
+        color: revealedColor,
+        capturer: movingGhost.owner,
+      });
     } else {
       soundManager.playMove();
+      setLastCapturedInfo(undefined);
     }
 
     setLastMove({
@@ -618,18 +635,31 @@ export const App: React.FC = () => {
     setSelectedGhostId(null);
     setValidMoves([]);
 
-    // Check Win Conditions
     const hasWon = checkWinConditions(nextCapturedList, updatedGhosts);
     if (hasWon) return;
 
-    // Switch Turn
     const nextTurn: PlayerRole = turn === 'p1' ? 'p2' : 'p1';
-    setTurn(nextTurn);
-    setTurnNumber((t) => t + 1);
 
-    if (gameMode === 'ai' && nextTurn === 'p2') {
-      triggerAITurn();
+    // In Pass & Play: Activate Battleship Privacy Shield before handing over!
+    if (gameMode === 'pass-and-play') {
+      setPendingNextPlayer(nextTurn);
+      setIsPassShieldActive(true);
+    } else {
+      setTurn(nextTurn);
+      setTurnNumber((t) => t + 1);
+
+      if (gameMode === 'ai' && nextTurn === 'p2') {
+        triggerAITurn();
+      }
     }
+  };
+
+  // Unlock callback when next player taps 3 times
+  const handlePassShieldUnlocked = () => {
+    setIsPassShieldActive(false);
+    setTurn(pendingNextPlayer);
+    setLocalPlayer(pendingNextPlayer);
+    setTurnNumber((t) => t + 1);
   };
 
   // Escape handling
@@ -638,7 +668,11 @@ export const App: React.FC = () => {
     const ghost = ghostsRef.current.find((g) => g.id === selectedGhostId);
     if (!ghost || ghost.color !== 'blue') return;
 
-    if (ghost.y !== 5 || (ghost.x !== 0 && ghost.x !== 5)) return;
+    // Check exit requirements (p1 exits at y=5, p2 exits at y=0)
+    const isP1Exit = ghost.owner === 'p1' && ghost.y === 5 && (ghost.x === 0 || ghost.x === 5);
+    const isP2Exit = ghost.owner === 'p2' && ghost.y === 0 && (ghost.x === 0 || ghost.x === 5);
+
+    if (!isP1Exit && !isP2Exit) return;
 
     soundManager.playEscape();
 
@@ -762,6 +796,7 @@ export const App: React.FC = () => {
     setWinReason(undefined);
     setSelectedGhostId(null);
     setValidMoves([]);
+    setIsPassShieldActive(false);
   };
 
   const handleRematch = () => {
@@ -775,6 +810,9 @@ export const App: React.FC = () => {
   };
 
   const defaultGhosts = createInitialGhosts('p1');
+
+  // Should board perspective flip? In Pass & Play when Player 2 is taking turn, flip so Player 2 sits at bottom!
+  const shouldFlipPerspective = gameMode === 'pass-and-play' && turn === 'p2';
 
   return (
     <div className="app-container">
@@ -810,8 +848,8 @@ export const App: React.FC = () => {
           <HeaderHud
             roomCode={roomCode}
             gameMode={gameMode}
-            isMyTurn={turn === localPlayer}
-            localPlayer={localPlayer}
+            isMyTurn={isMyTurnNow}
+            localPlayer={activeTurnPlayer}
             capturedGhosts={capturedGhosts}
             onOpenRules={() => setIsRulesOpen(true)}
             onResetGame={handleResetGame}
@@ -822,7 +860,7 @@ export const App: React.FC = () => {
               <Graveyard
                 title="OPPONENT'S CEMETERY"
                 capturedGhosts={capturedGhosts}
-                targetOwner={localPlayer === 'p1' ? 'p2' : 'p1'}
+                targetOwner={activeTurnPlayer === 'p1' ? 'p2' : 'p1'}
                 isOpponent
               />
             </aside>
@@ -832,9 +870,10 @@ export const App: React.FC = () => {
                 ghosts={ghosts}
                 selectedGhostId={selectedGhostId}
                 validMoves={validMoves}
-                localPlayer={localPlayer}
-                isMyTurn={turn === localPlayer}
+                activePlayer={activeTurnPlayer}
+                isMyTurn={isMyTurnNow}
                 isSetupPhase={false}
+                flipPerspective={shouldFlipPerspective}
                 lastMove={lastMove}
                 onSelectGhost={handleSelectGhost}
                 onTileClick={handleTileClick}
@@ -848,11 +887,21 @@ export const App: React.FC = () => {
               <Graveyard
                 title="YOUR CEMETERY"
                 capturedGhosts={capturedGhosts}
-                targetOwner={localPlayer}
+                targetOwner={activeTurnPlayer}
               />
             </aside>
           </div>
         </main>
+      )}
+
+      {/* Battleship Privacy Shield Overlay for Pass & Play */}
+      {isPassShieldActive && (
+        <PassTurnOverlay
+          nextPlayer={pendingNextPlayer}
+          turnNumber={turnNumber}
+          lastCapturedInfo={lastCapturedInfo}
+          onUnlocked={handlePassShieldUnlocked}
+        />
       )}
 
       <RulesModal isOpen={isRulesOpen} onClose={() => setIsRulesOpen(false)} />
@@ -861,7 +910,7 @@ export const App: React.FC = () => {
         <GameOverModal
           isOpen={gameStatus === 'gameover'}
           winner={winner}
-          localPlayer={localPlayer}
+          localPlayer={activeTurnPlayer}
           winReason={winReason}
           allGhosts={ghosts}
           onRematch={handleRematch}

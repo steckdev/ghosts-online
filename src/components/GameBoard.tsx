@@ -7,9 +7,10 @@ interface GameBoardProps {
   ghosts: Ghost[];
   selectedGhostId: string | null;
   validMoves: { x: number; y: number; isExit?: boolean }[];
-  localPlayer: PlayerRole;
+  activePlayer: PlayerRole; // The player currently taking their turn
   isMyTurn: boolean;
   isSetupPhase: boolean;
+  flipPerspective?: boolean; // Invert display for Player 2 so they sit at bottom
   lastMove?: {
     from: { x: number; y: number };
     to: { x: number; y: number };
@@ -22,15 +23,17 @@ interface GameBoardProps {
   onEscapeClick: () => void;
 }
 
-const COLUMNS = ['a', 'b', 'c', 'd', 'e', 'f'];
+const DEFAULT_COLS = ['a', 'b', 'c', 'd', 'e', 'f'];
+const FLIPPED_COLS = ['f', 'e', 'd', 'c', 'b', 'a'];
 
 export const GameBoard: React.FC<GameBoardProps> = ({
   ghosts,
   selectedGhostId,
   validMoves,
-  localPlayer,
+  activePlayer,
   isMyTurn,
   isSetupPhase,
+  flipPerspective = false,
   lastMove,
   onSelectGhost,
   onTileClick,
@@ -39,13 +42,17 @@ export const GameBoard: React.FC<GameBoardProps> = ({
   const selectedGhost = ghosts.find((g) => g.id === selectedGhostId);
   const canEscapeNow = validMoves.some((m) => m.isExit);
 
+  // Helper to translate display row/col to global grid coordinates
+  const toGlobalX = (dispX: number) => (flipPerspective ? 5 - dispX : dispX);
+  const toGlobalY = (dispY: number) => (flipPerspective ? 5 - dispY : dispY);
+
   // Drag and drop handlers
   const handleDragStart = (e: React.DragEvent, ghost: Ghost) => {
     if (!isMyTurn && !isSetupPhase) {
       e.preventDefault();
       return;
     }
-    if (ghost.owner !== localPlayer) {
+    if (ghost.owner !== activePlayer) {
       e.preventDefault();
       return;
     }
@@ -57,10 +64,12 @@ export const GameBoard: React.FC<GameBoardProps> = ({
     e.preventDefault();
   };
 
-  const handleDrop = (e: React.DragEvent, targetX: number, targetY: number) => {
+  const handleDrop = (e: React.DragEvent, globalX: number, globalY: number) => {
     e.preventDefault();
-    onTileClick(targetX, targetY);
+    onTileClick(globalX, globalY);
   };
+
+  const cols = flipPerspective ? FLIPPED_COLS : DEFAULT_COLS;
 
   return (
     <div className="game-board-outer">
@@ -70,8 +79,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({
           side="left"
           canEscape={
             canEscapeNow &&
-            selectedGhost?.x === 0 &&
-            selectedGhost?.y === 5
+            selectedGhost !== undefined &&
+            ((!flipPerspective && selectedGhost.x === 0 && selectedGhost.y === 5) ||
+              (flipPerspective && selectedGhost.x === 5 && selectedGhost.y === 0))
           }
           onEscapeClick={onEscapeClick}
         />
@@ -82,8 +92,9 @@ export const GameBoard: React.FC<GameBoardProps> = ({
           side="right"
           canEscape={
             canEscapeNow &&
-            selectedGhost?.x === 5 &&
-            selectedGhost?.y === 5
+            selectedGhost !== undefined &&
+            ((!flipPerspective && selectedGhost.x === 5 && selectedGhost.y === 5) ||
+              (flipPerspective && selectedGhost.x === 0 && selectedGhost.y === 0))
           }
           onEscapeClick={onEscapeClick}
         />
@@ -97,92 +108,102 @@ export const GameBoard: React.FC<GameBoardProps> = ({
         <div className="corner-web bottom-left" />
         <div className="corner-web bottom-right" />
 
-        {/* Board Tiles Grid (6 rows, rendered from top y=5 down to y=0) */}
+        {/* Board Tiles Grid (rendered from display y=5 down to y=0) */}
         <div className="stone-grid">
-          {[5, 4, 3, 2, 1, 0].map((y) => (
-            <div key={`row-${y}`} className="grid-row">
-              {/* Row number label on left */}
-              <div className="coord-label row-label">{y + 1}</div>
+          {[5, 4, 3, 2, 1, 0].map((dispY) => {
+            const globalY = toGlobalY(dispY);
+            const rowLabel = flipPerspective ? 6 - dispY : dispY + 1;
 
-              {[0, 1, 2, 3, 4, 5].map((x) => {
-                const isExitTile = (x === 0 && y === 5) || (x === 5 && y === 5);
-                const isValidMove = validMoves.some((m) => m.x === x && m.y === y && !m.isExit);
-                const isLastMovedFrom = lastMove?.from.x === x && lastMove?.from.y === y;
-                const isLastMovedTo = lastMove?.to.x === x && lastMove?.to.y === y;
+            return (
+              <div key={`row-${dispY}`} className="grid-row">
+                {/* Row number label on left */}
+                <div className="coord-label row-label">{rowLabel}</div>
 
-                const ghostOnTile = ghosts.find(
-                  (g) => !g.isCaptured && !g.hasEscaped && g.x === x && g.y === y
-                );
+                {[0, 1, 2, 3, 4, 5].map((dispX) => {
+                  const globalX = toGlobalX(dispX);
 
-                return (
-                  <div
-                    key={`tile-${x}-${y}`}
-                    className={`board-tile ${isExitTile ? 'exit-tile' : 'stone-tile'} ${
-                      isValidMove ? 'valid-target' : ''
-                    } ${isLastMovedFrom ? 'last-from' : ''} ${isLastMovedTo ? 'last-to' : ''}`}
-                    onClick={() => onTileClick(x, y)}
-                    onDragOver={handleDragOver}
-                    onDrop={(e) => handleDrop(e, x, y)}
-                  >
-                    {/* Exit Tile Runes */}
-                    {isExitTile && (
-                      <div className="exit-tile-runes">
-                        <span className="rune-arrow">↑</span>
-                        <span className="rune-text">GATE</span>
-                      </div>
-                    )}
+                  // Exit tile is always the top corners of the displayed board!
+                  const isExitTile = (dispX === 0 && dispY === 5) || (dispX === 5 && dispY === 5);
 
-                    {/* Valid Move Target Highlight Reticle */}
-                    {isValidMove && (
-                      <div className="valid-move-reticle">
-                        <span className="reticle-corner top-left" />
-                        <span className="reticle-corner top-right" />
-                        <span className="reticle-corner bottom-left" />
-                        <span className="reticle-corner bottom-right" />
-                        <div className="reticle-glow-core" />
-                      </div>
-                    )}
+                  const isValidMove = validMoves.some(
+                    (m) => m.x === globalX && m.y === globalY && !m.isExit
+                  );
+                  const isLastMovedFrom = lastMove?.from.x === globalX && lastMove?.from.y === globalY;
+                  const isLastMovedTo = lastMove?.to.x === globalX && lastMove?.to.y === globalY;
 
-                    {/* Ghost Piece on Tile */}
-                    {ghostOnTile && (
-                      <div
-                        className={`ghost-wrapper ${
-                          ghostOnTile.owner === localPlayer ? 'own-ghost' : 'opponent-ghost'
-                        }`}
-                        draggable={ghostOnTile.owner === localPlayer && (isMyTurn || isSetupPhase)}
-                        onDragStart={(e) => handleDragStart(e, ghostOnTile)}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (ghostOnTile.owner === localPlayer) {
-                            onSelectGhost(ghostOnTile);
-                          } else if (isValidMove) {
-                            // Capturing this opponent ghost!
-                            onTileClick(x, y);
-                          }
-                        }}
-                      >
-                        <GhostPiece
-                          color={ghostOnTile.color}
-                          isOpponent={ghostOnTile.owner !== localPlayer}
-                          isSelected={ghostOnTile.id === selectedGhostId}
-                          isLastMoved={lastMove?.ghostId === ghostOnTile.id}
-                          size={54}
-                        />
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+                  const ghostOnTile = ghosts.find(
+                    (g) => !g.isCaptured && !g.hasEscaped && g.x === globalX && g.y === globalY
+                  );
 
-              {/* Row number label on right */}
-              <div className="coord-label row-label">{y + 1}</div>
-            </div>
-          ))}
+                  return (
+                    <div
+                      key={`tile-${dispX}-${dispY}`}
+                      className={`board-tile ${isExitTile ? 'exit-tile' : 'stone-tile'} ${
+                        isValidMove ? 'valid-target' : ''
+                      } ${isLastMovedFrom ? 'last-from' : ''} ${isLastMovedTo ? 'last-to' : ''}`}
+                      onClick={() => onTileClick(globalX, globalY)}
+                      onDragOver={handleDragOver}
+                      onDrop={(e) => handleDrop(e, globalX, globalY)}
+                    >
+                      {/* Exit Tile Runes */}
+                      {isExitTile && (
+                        <div className="exit-tile-runes">
+                          <span className="rune-arrow">↑</span>
+                          <span className="rune-text">GATE</span>
+                        </div>
+                      )}
+
+                      {/* Valid Move Target Highlight Reticle */}
+                      {isValidMove && (
+                        <div className="valid-move-reticle">
+                          <span className="reticle-corner top-left" />
+                          <span className="reticle-corner top-right" />
+                          <span className="reticle-corner bottom-left" />
+                          <span className="reticle-corner bottom-right" />
+                          <div className="reticle-glow-core" />
+                        </div>
+                      )}
+
+                      {/* Ghost Piece on Tile */}
+                      {ghostOnTile && (
+                        <div
+                          className={`ghost-wrapper ${
+                            ghostOnTile.owner === activePlayer ? 'own-ghost' : 'opponent-ghost'
+                          }`}
+                          draggable={ghostOnTile.owner === activePlayer && (isMyTurn || isSetupPhase)}
+                          onDragStart={(e) => handleDragStart(e, ghostOnTile)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (ghostOnTile.owner === activePlayer) {
+                              onSelectGhost(ghostOnTile);
+                            } else if (isValidMove) {
+                              onTileClick(globalX, globalY);
+                            }
+                          }}
+                        >
+                          <GhostPiece
+                            color={ghostOnTile.color}
+                            isOpponent={ghostOnTile.owner !== activePlayer}
+                            isSelected={ghostOnTile.id === selectedGhostId}
+                            isLastMoved={lastMove?.ghostId === ghostOnTile.id}
+                            size={52}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {/* Row number label on right */}
+                <div className="coord-label row-label">{rowLabel}</div>
+              </div>
+            );
+          })}
 
           {/* Column letters at bottom */}
           <div className="grid-col-labels">
             <div className="coord-spacer" />
-            {COLUMNS.map((col) => (
+            {cols.map((col) => (
               <div key={`col-${col}`} className="coord-label col-label">
                 {col}
               </div>

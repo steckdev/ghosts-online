@@ -11,21 +11,30 @@ export interface AIMove {
 export function getValidMovesForGhost(
   ghost: Ghost,
   allGhosts: Ghost[],
-  playerRole: 'p1' | 'p2'
+  playerRole: 'p1' | 'p2',
+  isGlobalCoordinates: boolean = false
 ): { x: number; y: number; isExit?: boolean }[] {
   const moves: { x: number; y: number; isExit?: boolean }[] = [];
   const directions = [
-    { dx: 0, dy: 1 },  // Forward (towards opponent's side)
+    { dx: 0, dy: 1 },  // Forward (towards row 5)
     { dx: 0, dy: -1 }, // Backward
     { dx: -1, dy: 0 }, // Left
     { dx: 1, dy: 0 },  // Right
   ];
 
-  // Exit check: If ghost is GOOD (Blue) and already at an exit tile on row 5 (opponent's back row, corners x=0 or x=5)
-  // It can escape by moving off the board forward!
-  if (ghost.color === 'blue' && ghost.y === 5 && (ghost.x === 0 || ghost.x === 5)) {
-    // Can step off the board through the exit gateway!
-    moves.push({ x: ghost.x, y: 6, isExit: true });
+  // Exit check: If ghost is GOOD (Blue) and already at an exit tile
+  if (!isGlobalCoordinates) {
+    // Local / Normalized perspective (player moves from y=0 to y=5)
+    if (ghost.color === 'blue' && ghost.y === 5 && (ghost.x === 0 || ghost.x === 5)) {
+      moves.push({ x: ghost.x, y: 6, isExit: true });
+    }
+  } else {
+    // Global board coordinates
+    if (playerRole === 'p1' && ghost.color === 'blue' && ghost.y === 5 && (ghost.x === 0 || ghost.x === 5)) {
+      moves.push({ x: ghost.x, y: 6, isExit: true });
+    } else if (playerRole === 'p2' && ghost.color === 'blue' && ghost.y === 0 && (ghost.x === 0 || ghost.x === 5)) {
+      moves.push({ x: ghost.x, y: -1, isExit: true });
+    }
   }
 
   for (const { dx, dy } of directions) {
@@ -60,7 +69,7 @@ export function calculateAIMove(
   // 1. Immediate Win: If any AI blue ghost can escape off the board, take it immediately!
   for (const ghost of activeAiGhosts) {
     if (ghost.color === 'blue') {
-      const valid = getValidMovesForGhost(ghost, [...aiGhosts, ...playerGhosts], 'p2');
+      const valid = getValidMovesForGhost(ghost, [...aiGhosts, ...playerGhosts], 'p2', false);
       const exitMove = valid.find((m) => m.isExit);
       if (exitMove) {
         return {
@@ -76,7 +85,7 @@ export function calculateAIMove(
   // 2. If an AI blue ghost can move onto an exit tile (x=0, y=5) or (x=5, y=5) without immediate death, prioritize it!
   for (const ghost of activeAiGhosts) {
     if (ghost.color === 'blue') {
-      const valid = getValidMovesForGhost(ghost, [...aiGhosts, ...playerGhosts], 'p2');
+      const valid = getValidMovesForGhost(ghost, [...aiGhosts, ...playerGhosts], 'p2', false);
       const enterExitMove = valid.find((m) => (m.x === 0 || m.x === 5) && m.y === 5);
       if (enterExitMove) {
         return {
@@ -96,10 +105,10 @@ export function calculateAIMove(
   const candidateMoves: ScoredMove[] = [];
 
   for (const ghost of activeAiGhosts) {
-    const validMoves = getValidMovesForGhost(ghost, [...aiGhosts, ...playerGhosts], 'p2');
+    const validMoves = getValidMovesForGhost(ghost, [...aiGhosts, ...playerGhosts], 'p2', false);
 
     for (const target of validMoves) {
-      if (target.isExit) continue; // Handled above
+      if (target.isExit) continue;
 
       let score = 0;
       const targetGhost = activePlayerGhosts.find((g) => g.x === target.x && g.y === target.y);
@@ -111,45 +120,37 @@ export function calculateAIMove(
 
       if (ghost.color === 'blue') {
         // BLUE GHOST BEHAVIOR:
-        // Wants to advance towards exit tiles (high row y)
-        score += (target.y - ghost.y) * 15; // Moving forward is heavily rewarded
-        score += (10 - distToExit) * 5;     // Getting closer to corners
+        score += (target.y - ghost.y) * 15;
+        score += (10 - distToExit) * 5;
 
-        // If target square captures a player ghost:
         if (targetGhost) {
-          score += 20; // Capturing is good, but could be a red trap
+          score += 20;
         }
 
-        // Penalty if moving into a threatened square (adjacent to an enemy)
         const isThreatened = activePlayerGhosts.some(
           (pg) => Math.abs(pg.x - target.x) + Math.abs(pg.y - target.y) === 1
         );
         if (isThreatened) {
-          score -= 35; // Blue ghosts avoid danger!
+          score -= 35;
         }
       } else {
         // RED GHOST BEHAVIOR (POISON PILL / BLUFF):
-        // Red ghosts LOVE marching aggressively right in front of the player!
-        // Red wants to look like a blue ghost escaping, or tempt captures!
         score += (target.y - ghost.y) * 18;
 
         if (targetGhost) {
-          score += 25; // Red can also capture
+          score += 25;
         }
 
-        // Bonus if moving right into enemy strike range (tempting player to capture a red ghost!)
         const isThreatened = activePlayerGhosts.some(
           (pg) => Math.abs(pg.x - target.x) + Math.abs(pg.y - target.y) === 1
         );
         if (isThreatened) {
-          score += 30; // Red actively baited!
+          score += 30;
         }
 
-        // Red ghosts bluffing towards the exit mimics blue ghosts
         score += (10 - distToExit) * 3;
       }
 
-      // Add a small dose of randomness for unpredictability
       score += Math.random() * 8;
 
       candidateMoves.push({
@@ -165,10 +166,7 @@ export function calculateAIMove(
 
   if (candidateMoves.length === 0) return null;
 
-  // Sort by highest score
   candidateMoves.sort((a, b) => b.score - a.score);
-
-  // Pick top move or randomly from top 2 for variety
   const topCutoff = Math.min(candidateMoves.length, 2);
   const selected = candidateMoves[Math.floor(Math.random() * topCutoff)];
   return selected.move;
