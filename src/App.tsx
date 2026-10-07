@@ -27,6 +27,9 @@ import { DungeonDecorations } from './components/DungeonDecorations';
 import { PassAndPlaySetupModal } from './components/PassAndPlaySetupModal';
 import { LevelSelectModal } from './components/LevelSelectModal';
 import { LevelCompleteModal } from './components/LevelCompleteModal';
+import { StatsModal } from './components/StatsModal';
+import { AchievementToast } from './components/AchievementToast';
+import { usePlayerStats } from './hooks/usePlayerStats';
 import { peerService } from './services/peerService';
 import { soundManager } from './audio/soundEffects';
 import {
@@ -59,6 +62,20 @@ export const App: React.FC = () => {
 
   // Campaign State Hook
   const campaign = useCampaign();
+
+  // Player Career Statistics & Arcade Achievements Hook
+  const {
+    stats: playerStats,
+    achievements,
+    unlockedCount,
+    isStatsModalOpen,
+    setIsStatsModalOpen,
+    recentToast,
+    clearToast,
+    recordMatch,
+    resetCareerStats,
+  } = usePlayerStats();
+  const hasRecordedMatchStatsRef = useRef<boolean>(false);
 
   // Pass & Play Privacy Shield & Setup State
   const [isPassShieldActive, setIsPassShieldActive] = useState<boolean>(false);
@@ -212,7 +229,7 @@ export const App: React.FC = () => {
           .catch(console.error);
       }
     }
-  }, [initialSession]);
+  }, [initialSession, ghostsRef, turnRef, turnNumberRef, capturedGhostsRef]);
 
   // Continuously persist active match state to survive future refreshes
   useEffect(() => {
@@ -241,6 +258,57 @@ export const App: React.FC = () => {
     ghosts,
     mySecretGhosts,
     capturedGhosts,
+  ]);
+
+  // Record match results for player statistics and achievements
+  useEffect(() => {
+    if (gameStatus === 'playing') {
+      hasRecordedMatchStatsRef.current = false;
+    } else if (gameStatus === 'gameover' && winner && winReason && !hasRecordedMatchStatsRef.current) {
+      hasRecordedMatchStatsRef.current = true;
+      const opponentRole = localPlayer === 'p1' ? 'p2' : 'p1';
+      const isWinner = gameMode === 'pass-and-play' ? true : winner === localPlayer;
+
+      const myCaptured = capturedGhosts.filter((c) => c.owner === opponentRole);
+      const myLost = capturedGhosts.filter((c) => c.owner === localPlayer);
+
+      const capturedBlues = myCaptured.filter((c) => c.color === 'blue').length;
+      const capturedReds = myCaptured.filter((c) => c.color === 'red').length;
+      const lostBlues = myLost.filter((c) => c.color === 'blue').length;
+      const lostReds = myLost.filter((c) => c.color === 'red').length;
+
+      const movesTaken = gameMode === 'levels' ? campaign.levelMovesTaken : turnNumber;
+
+      recordMatch({
+        gameMode,
+        aiDifficulty: gameMode === 'ai' ? aiDifficulty : undefined,
+        levelId: gameMode === 'levels' ? campaign.currentLevel?.id : undefined,
+        isWinner,
+        winReason,
+        movesTaken,
+        capturedBlues,
+        capturedReds,
+        lostBlues,
+        lostReds,
+        starsEarned:
+          gameMode === 'levels' && campaign.levelCompleteModalData
+            ? campaign.levelCompleteModalData.starsEarned
+            : undefined,
+      });
+    }
+  }, [
+    gameStatus,
+    winner,
+    winReason,
+    gameMode,
+    localPlayer,
+    capturedGhosts,
+    turnNumber,
+    aiDifficulty,
+    campaign.levelMovesTaken,
+    campaign.currentLevel,
+    campaign.levelCompleteModalData,
+    recordMatch,
   ]);
 
   // Campaign Actions
@@ -803,6 +871,8 @@ export const App: React.FC = () => {
           defaultGhosts={defaultGhosts}
           prefilledRoomCode={roomCode}
           initialDifficulty={aiDifficulty}
+          onOpenStats={() => setIsStatsModalOpen(true)}
+          unlockedAchievementsCount={unlockedCount}
         />
       )}
 
@@ -834,6 +904,7 @@ export const App: React.FC = () => {
             onRestartLevel={handleRestartCurrentLevel}
             onOpenLevelSelect={() => campaign.setIsLevelSelectOpen(true)}
             onExportMoves={handleExportMoves}
+            onOpenStats={() => setIsStatsModalOpen(true)}
           />
 
           <div className="board-layout-container">
@@ -944,6 +1015,23 @@ export const App: React.FC = () => {
             onExportMoves={handleExportMoves}
           />
         )}
+
+      {/* Achievement Unlocked Retro Toast */}
+      {recentToast && (
+        <AchievementToast
+          achievement={recentToast}
+          onClose={clearToast}
+        />
+      )}
+
+      {/* Career Statistics & Retro Trophy Cabinet Modal */}
+      <StatsModal
+        isOpen={isStatsModalOpen}
+        onClose={() => setIsStatsModalOpen(false)}
+        stats={playerStats}
+        achievements={achievements}
+        onResetStats={resetCareerStats}
+      />
     </div>
   );
 };

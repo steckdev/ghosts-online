@@ -33,6 +33,7 @@ interface HeaderHudProps {
   onRestartLevel?: () => void;
   onOpenLevelSelect?: () => void;
   onExportMoves?: () => void;
+  onOpenStats?: () => void;
 }
 
 export const HeaderHud: React.FC<HeaderHudProps> = ({
@@ -50,6 +51,7 @@ export const HeaderHud: React.FC<HeaderHudProps> = ({
   onRestartLevel,
   onOpenLevelSelect,
   onExportMoves,
+  onOpenStats,
 }) => {
   const [copied, setCopied] = useState(false);
   const [muted, setMuted] = useState(soundManager.isMuted());
@@ -163,6 +165,17 @@ export const HeaderHud: React.FC<HeaderHudProps> = ({
               aria-label="Export Game Moves"
             >
               <Download size={18} />
+            </button>
+          )}
+
+          {onOpenStats && (
+            <button
+              className="hud-icon-btn stats-btn"
+              onClick={onOpenStats}
+              title="Career Records & Trophies"
+              aria-label="Career Records"
+            >
+              <Trophy size={18} />
             </button>
           )}
 

@@ -31,6 +31,8 @@ interface LobbyScreenProps {
   defaultGhosts: Ghost[];
   prefilledRoomCode?: string;
   initialDifficulty?: AIDifficulty;
+  onOpenStats?: () => void;
+  unlockedAchievementsCount?: number;
 }
 
 export const LobbyScreen: React.FC<LobbyScreenProps> = ({
@@ -44,6 +46,8 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   defaultGhosts,
   prefilledRoomCode = '',
   initialDifficulty = 'hard',
+  onOpenStats,
+  unlockedAchievementsCount = 0,
 }) => {
   const [selectedMode, setSelectedMode] = useState<GameMode>(prefilledRoomCode ? 'online' : 'levels');
   const [aiDifficulty, setAiDifficulty] = useState<AIDifficulty>(initialDifficulty);
@@ -106,7 +110,22 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
     <div className="lobby-container">
       {/* Arcade Neon Spooky Title */}
       <div className="lobby-header">
-        <div className="arcade-badge">1982 ALEX RANDOLPH CLASSIC</div>
+        <div className="lobby-top-bar">
+          <div className="arcade-badge">1982 ALEX RANDOLPH CLASSIC</div>
+          {onOpenStats && (
+            <button
+              className="lobby-trophy-btn"
+              onClick={onOpenStats}
+              title="View Career Statistics & Trophy Cabinet"
+            >
+              <Trophy size={15} />
+              <span>Records & Trophies</span>
+              {unlockedAchievementsCount !== undefined && (
+                <span className="trophy-pill-badge">{unlockedAchievementsCount}/21</span>
+              )}
+            </button>
+          )}
+        </div>
         <h1 className="lobby-title-glow">GHOSTS</h1>
         <p className="lobby-subtitle">
           The Classic Game of Bluffing & Asymmetric Deduction
