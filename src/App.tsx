@@ -739,12 +739,12 @@ export const App: React.FC = () => {
         handleSelectLevel(campaign.currentLevel);
       }
     } else if (gameMode === 'ai') {
-      const nextP1 = shuffleGhostColors(mySecretGhostsRef.current);
+      const freshP1 = createInitialGhosts('p1');
+      const nextP1 = shuffleGhostColors(freshP1);
       handleStartAI(nextP1, aiDifficulty);
     } else if (gameMode === 'pass-and-play') {
-      const nextP1 = shuffleGhostColors(
-        p1SavedGhostsRef.current.length > 0 ? p1SavedGhostsRef.current : mySecretGhostsRef.current
-      );
+      const freshP1 = createInitialGhosts('p1');
+      const nextP1 = shuffleGhostColors(freshP1);
       handleStartPassAndPlay(nextP1);
     } else if (gameMode === 'online' && peerService.isConnected()) {
       resetForOnlineRematch();

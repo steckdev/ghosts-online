@@ -251,6 +251,7 @@ export function useGameState({
         difficulty: aiDifficulty,
         puzzleBehavior: gameMode === 'levels' ? currentLevel?.aiBehavior : undefined,
         playerSecretGhosts: mySecretGhostsRef.current,
+        capturedGhosts: capturedGhostsRef.current,
       });
 
       if (!aiDecision) {
@@ -628,6 +629,8 @@ export function useGameState({
       const p1Ghosts: Ghost[] = level.playerGhosts.map((g) => ({
         ...g,
         owner: 'p1' as const,
+        isCaptured: false,
+        hasEscaped: false,
       }));
       setMySecretGhosts(p1Ghosts);
       mySecretGhostsRef.current = p1Ghosts;
@@ -641,6 +644,8 @@ export function useGameState({
           color: 'unknown' as const,
           x: g.x,
           y: g.y,
+          isCaptured: false,
+          hasEscaped: false,
         };
       });
 
@@ -666,7 +671,19 @@ export function useGameState({
       resetGameCleanly('playing');
       setAiDifficulty(difficulty);
 
-      const p1Ghosts = initialGhosts.map((g) => ({ ...g, owner: 'p1' as const }));
+      const p1Slots = [
+        { x: 1, y: 0 }, { x: 2, y: 0 }, { x: 3, y: 0 }, { x: 4, y: 0 },
+        { x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 1 }, { x: 4, y: 1 },
+      ];
+
+      const p1Ghosts = initialGhosts.map((g, idx) => ({
+        ...g,
+        owner: 'p1' as const,
+        x: p1Slots[idx]?.x ?? g.x,
+        y: p1Slots[idx]?.y ?? g.y,
+        isCaptured: false,
+        hasEscaped: false,
+      }));
       setMySecretGhosts(p1Ghosts);
       mySecretGhostsRef.current = p1Ghosts;
 
@@ -712,9 +729,21 @@ export function useGameState({
   const startPassAndPlay = useCallback(
     (p1Ghosts: Ghost[], p2Ghosts: Ghost[]) => {
       resetGameCleanly('playing');
-      setMySecretGhosts(p1Ghosts);
-      mySecretGhostsRef.current = p1Ghosts;
-      const initialBoard = [...p1Ghosts, ...p2Ghosts];
+      const p1Slots = [
+        { x: 1, y: 0 }, { x: 2, y: 0 }, { x: 3, y: 0 }, { x: 4, y: 0 },
+        { x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 1 }, { x: 4, y: 1 },
+      ];
+      const normalizedP1 = p1Ghosts.map((g, idx) => ({
+        ...g,
+        owner: 'p1' as const,
+        x: p1Slots[idx]?.x ?? g.x,
+        y: p1Slots[idx]?.y ?? g.y,
+        isCaptured: false,
+        hasEscaped: false,
+      }));
+      setMySecretGhosts(normalizedP1);
+      mySecretGhostsRef.current = normalizedP1;
+      const initialBoard = [...normalizedP1, ...p2Ghosts];
       setGhosts(initialBoard);
       ghostsRef.current = initialBoard;
 

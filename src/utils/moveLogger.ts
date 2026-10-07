@@ -60,11 +60,17 @@ class MoveLoggerService {
     return moveRecord;
   }
 
+  private lastCompletedSession: GameSessionLog | null = null;
+
   finishSession(winner: PlayerRole, winReason: WinReason): GameSessionLog | null {
     if (!this.currentSession) return null;
     this.currentSession.endTime = Date.now();
     this.currentSession.winner = winner;
     this.currentSession.winReason = winReason;
+    this.lastCompletedSession = {
+      ...this.currentSession,
+      moves: [...this.currentSession.moves],
+    };
     return this.currentSession;
   }
 
@@ -72,20 +78,35 @@ class MoveLoggerService {
     return this.currentSession;
   }
 
+  getLastCompletedSession(): GameSessionLog | null {
+    return this.lastCompletedSession;
+  }
+
   exportSessionAsJSON(): string {
-    if (!this.currentSession) {
+    const sessionToExport =
+      this.currentSession && this.currentSession.moves.length > 0
+        ? this.currentSession
+        : this.lastCompletedSession || this.currentSession;
+
+    if (!sessionToExport) {
       return JSON.stringify({ message: 'No active session recorded' }, null, 2);
     }
-    return JSON.stringify(this.currentSession, null, 2);
+    return JSON.stringify(sessionToExport, null, 2);
   }
 
   downloadSessionJSON(): void {
     if (typeof window === 'undefined') return;
+    const sessionToExport =
+      this.currentSession && this.currentSession.moves.length > 0
+        ? this.currentSession
+        : this.lastCompletedSession || this.currentSession;
+
     const jsonStr = this.exportSessionAsJSON();
     const blob = new Blob([jsonStr], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    const filename = `ghosts_telemetry_${this.currentSession?.gameMode || 'game'}_${Date.now()}.json`;
+    const mode = sessionToExport?.gameMode || 'game';
+    const filename = `ghosts_telemetry_${mode}_${Date.now()}.json`;
     a.href = url;
     a.download = filename;
     document.body.appendChild(a);

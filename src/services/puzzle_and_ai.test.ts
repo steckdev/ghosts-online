@@ -8,6 +8,7 @@ import {
   resetAllLevelProgress,
 } from '../utils/levelStorage';
 import { calculateAIMove } from './aiService';
+import { createInitialGhosts, shuffleGhostColors } from '../utils/ghostUtils';
 import type { Ghost } from '../types/game';
 
 describe('50 Puzzle Levels Configuration', () => {
@@ -122,10 +123,9 @@ describe('AI Difficulty Modes & Omniscient Super Max', () => {
     expect(decision?.to).toEqual({ x: 2, y: 3 });
   });
 
-  it('Super Max AI strictly refuses to capture player Red ghost when safe step exists', () => {
+  it('Super Max AI smashes through player Red barricade when holding 0 red ghosts', () => {
     // AI has 1 Blue ghost at (2, 2)
-    // Only enemy in capture range is player's RED ghost at (2, 3)
-    // AI can also move backward to (2, 1) or sideways to (3, 2) or (1, 2)
+    // Enemy in capture range is player's RED ghost at (2, 3) blocking the path forward
     const aiGhosts: Ghost[] = [
       { id: 'ai-1', owner: 'p2', color: 'blue', x: 2, y: 2 },
     ];
@@ -136,11 +136,59 @@ describe('AI Difficulty Modes & Omniscient Super Max', () => {
     const decision = calculateAIMove(aiGhosts, playerGhosts, {
       difficulty: 'super_max',
       playerSecretGhosts: playerGhosts,
+      capturedGhosts: [], // 0 red ghosts captured
     });
 
     expect(decision).not.toBeNull();
-    // AI must NOT step onto (2, 3) where the Red ghost is!
+    // AI smashes through the red barricade to unblock advance!
+    expect(decision?.to).toEqual({ x: 2, y: 3 });
+  });
+
+  it('Super Max AI strictly refuses to capture player Red ghost when holding 3 red ghosts (Poison Pill)', () => {
+    // AI has 1 Blue ghost at (2, 2)
+    // Enemy in capture range is player's RED ghost at (2, 3)
+    const aiGhosts: Ghost[] = [
+      { id: 'ai-1', owner: 'p2', color: 'blue', x: 2, y: 2 },
+    ];
+    const playerGhosts: Ghost[] = [
+      { id: 'p1-red', owner: 'p1', color: 'red', x: 2, y: 3 },
+    ];
+    const threeRedCaptured = [
+      { id: 'p1-r1', owner: 'p1' as const, color: 'red' as const, turnNumber: 1 },
+      { id: 'p1-r2', owner: 'p1' as const, color: 'red' as const, turnNumber: 2 },
+      { id: 'p1-r3', owner: 'p1' as const, color: 'red' as const, turnNumber: 3 },
+    ];
+
+    const decision = calculateAIMove(aiGhosts, playerGhosts, {
+      difficulty: 'super_max',
+      playerSecretGhosts: playerGhosts,
+      capturedGhosts: threeRedCaptured,
+    });
+
+    expect(decision).not.toBeNull();
+    // 4th Red Ghost would lose game! AI must NOT step onto (2, 3)
     expect(decision?.to).not.toEqual({ x: 2, y: 3 });
+  });
+
+  it('AI Blue ghost avoids walking into threatened exit gate trap', () => {
+    // AI Blue ghost is at (0, 4). Exit gate is at (0, 5).
+    // Player has an active ghost at (1, 5) threatening (0, 5) with immediate capture.
+    const aiGhosts: Ghost[] = [
+      { id: 'ai-blue', owner: 'p2', color: 'blue', x: 0, y: 4 },
+    ];
+    const playerGhosts: Ghost[] = [
+      { id: 'p1-guard', owner: 'p1', color: 'blue', x: 1, y: 5 },
+    ];
+
+    const decision = calculateAIMove(aiGhosts, playerGhosts, {
+      difficulty: 'super_max',
+      playerSecretGhosts: playerGhosts,
+      capturedGhosts: [],
+    });
+
+    // AI should not walk into (0, 5) when (1, 5) will kill it immediately
+    expect(decision).not.toBeNull();
+    expect(decision?.to).not.toEqual({ x: 0, y: 5 });
   });
 
   it('Immediate win: AI Blue ghost escapes off board if at exit', () => {
@@ -289,6 +337,29 @@ describe('Campaign Scenario Elimination & Defeat Detection', () => {
     // Verify elimination check: 0 remaining player ghosts must trigger P2 win
     const isP1Eliminated = remainingP1.length === 0;
     expect(isP1Eliminated).toBe(true);
+  });
+});
+
+describe('Rematch State Clean Reset Verification', () => {
+  it('resets player 1 ghosts to starting rows 0 and 1 with uncaptured state', () => {
+    // Rematch creates fresh initial ghosts
+    const freshGhosts = createInitialGhosts('p1');
+    const shuffledFresh = shuffleGhostColors(freshGhosts);
+
+    expect(shuffledFresh.length).toBe(8);
+    // All fresh ghosts must be in starting rows 0 and 1
+    shuffledFresh.forEach((g) => {
+      expect([0, 1]).toContain(g.y);
+      expect([1, 2, 3, 4]).toContain(g.x);
+      expect(g.isCaptured).toBeFalsy();
+      expect(g.hasEscaped).toBeFalsy();
+    });
+
+    // Exactly 4 blue and 4 red
+    const blueCount = shuffledFresh.filter((g) => g.color === 'blue').length;
+    const redCount = shuffledFresh.filter((g) => g.color === 'red').length;
+    expect(blueCount).toBe(4);
+    expect(redCount).toBe(4);
   });
 });
 

@@ -1,4 +1,4 @@
-import type { Ghost, AIDifficulty } from '../types/game';
+import type { Ghost, AIDifficulty, CapturedGhost } from '../types/game';
 
 export interface AIMove {
   ghostId: string;
@@ -13,6 +13,7 @@ export interface AIMoveOptions {
   difficulty?: AIDifficulty;
   puzzleBehavior?: PuzzleAIBehavior;
   playerSecretGhosts?: Ghost[];
+  capturedGhosts?: CapturedGhost[];
 }
 
 // Generate valid moves for a ghost on a 6x6 board
@@ -86,20 +87,30 @@ export function calculateAIMove(
   let difficulty: AIDifficulty = 'hard';
   let puzzleBehavior: PuzzleAIBehavior | undefined;
   let playerSecretGhosts: Ghost[] | undefined;
+  let capturedGhosts: CapturedGhost[] | undefined;
 
   if (typeof optionsOrDifficulty === 'string') {
     difficulty = optionsOrDifficulty;
     if (legacyOptions) {
       puzzleBehavior = legacyOptions.puzzleBehavior;
       playerSecretGhosts = legacyOptions.playerSecretGhosts;
+      capturedGhosts = legacyOptions.capturedGhosts;
     }
   } else if (optionsOrDifficulty && typeof optionsOrDifficulty === 'object') {
     difficulty = optionsOrDifficulty.difficulty || 'hard';
     puzzleBehavior = optionsOrDifficulty.puzzleBehavior;
     playerSecretGhosts = optionsOrDifficulty.playerSecretGhosts;
+    capturedGhosts = optionsOrDifficulty.capturedGhosts;
   }
 
   const isDeterministic = !!puzzleBehavior;
+
+  const capturedList = capturedGhosts || [];
+  // AI is 'p2'. Player 1's ghosts captured by AI have owner === 'p1'.
+  const aiCapturedRedCount = capturedList.filter((g) => g.owner === 'p1' && g.color === 'red').length;
+  const aiCapturedBlueCount = capturedList.filter((g) => g.owner === 'p1' && g.color === 'blue').length;
+  // AI's ghosts captured by Player 1 have owner === 'p2'.
+  const playerCapturedAiRedCount = capturedList.filter((g) => g.owner === 'p2' && g.color === 'red').length;
 
   // 1. Immediate Win: If any AI blue ghost can escape off the board, take it immediately!
   for (const ghost of activeAiGhosts) {
@@ -117,15 +128,23 @@ export function calculateAIMove(
     }
   }
 
-  // 2. If an AI blue ghost can move onto an exit tile (x=0, y=5) or (x=5, y=5) safely, prioritize it!
+  // 2. Safe Gate Approach: If an AI blue ghost can move onto an exit tile (x=0, y=5) or (x=5, y=5)
+  // and is NOT walking into an ambush where an adjacent player ghost would capture it next turn:
   for (const ghost of activeAiGhosts) {
     if (ghost.color === 'blue') {
       const valid = getValidMovesForGhost(ghost, [...aiGhosts, ...playerGhosts], 'p2', false);
       const enterExitMove = valid.find((m) => (m.x === 0 || m.x === 5) && m.y === 5);
       if (enterExitMove) {
-        // In puzzle mode or high difficulty, check if target square is free
-        const isOccupied = activePlayerGhosts.some((pg) => pg.x === enterExitMove.x && pg.y === enterExitMove.y);
-        if (!isOccupied || difficulty === 'super_max') {
+        // Check if an active player ghost is adjacent to that gate (Manhattan distance 1)
+        // (excluding any player ghost that sits directly on the gate and is being captured by this move)
+        const isAmbushed = activePlayerGhosts.some(
+          (pg) =>
+            !(pg.x === enterExitMove.x && pg.y === enterExitMove.y) &&
+            Math.abs(pg.x - enterExitMove.x) + Math.abs(pg.y - enterExitMove.y) === 1
+        );
+
+        // If gate is free of ambushes, or if playing deterministic puzzle, take it!
+        if (!isAmbushed || isDeterministic) {
           return {
             ghostId: ghost.id,
             from: { x: ghost.x, y: ghost.y },
@@ -154,6 +173,8 @@ export function calculateAIMove(
     }
   }
 
+  const activeAiBlues = activeAiGhosts.filter((g) => g.color === 'blue');
+
   for (const ghost of activeAiGhosts) {
     const validMoves = getValidMovesForGhost(ghost, [...aiGhosts, ...playerGhosts], 'p2', false);
 
@@ -164,9 +185,16 @@ export function calculateAIMove(
       const targetGhost = activePlayerGhosts.find((g) => g.x === target.x && g.y === target.y);
 
       // Distance to nearest exit (x=0,y=5 or x=5,y=5)
-      const distToExitLeft = Math.abs(target.x - 0) + Math.abs(5 - target.y);
-      const distToExitRight = Math.abs(target.x - 5) + Math.abs(5 - target.y);
-      const distToExit = Math.min(distToExitLeft, distToExitRight);
+      // Dual-Flank Runner logic: If multiple AI Blue ghosts, balance them across left and right gates
+      let targetGateX = 0;
+      if (activeAiBlues.length >= 2 && ghost.color === 'blue') {
+        targetGateX = ghost.x >= 3 ? 5 : 0;
+      } else {
+        const dLeft = Math.abs(target.x - 0) + Math.abs(5 - target.y);
+        const dRight = Math.abs(target.x - 5) + Math.abs(5 - target.y);
+        targetGateX = dLeft <= dRight ? 0 : 5;
+      }
+      const distToExit = Math.abs(target.x - targetGateX) + Math.abs(5 - target.y);
 
       // --- PUZZLE-SPECIFIC BEHAVIORS ---
       if (puzzleBehavior === 'passive') {
@@ -191,81 +219,144 @@ export function calculateAIMove(
         score += (10 - minDistToPlayer) * 12;
       } else if (difficulty === 'easy') {
         // --- EASY DIFFICULTY ---
-        // Basic forward momentum, casual moves, frequent minor suboptimal choices
         score += (target.y - ghost.y) * 8;
         if (targetGhost) score += 10;
-        // Moderate random noise for casual play
         score += Math.random() * 20;
       } else if (difficulty === 'super_max') {
         // --- SUPER MAX (OMNISCIENT MASTER AI) ---
         // Knows true player colors!
         if (targetGhost) {
           const trueColor = playerColorMap.get(targetGhost.id);
-          if (trueColor === 'red') {
-            // STRICT AVOIDANCE: Never capture player's red poison pills!
-            score -= 1000;
-          } else if (trueColor === 'blue') {
+          if (trueColor === 'blue') {
             // RELENTLESS HUNT: Aggressively eliminate player's blue ghosts!
-            score += 200;
+            score += (aiCapturedBlueCount === 3 ? 5000 : 250);
+          } else if (trueColor === 'red') {
+            // DYNAMIC RED BARRICADE SMASHING
+            if (aiCapturedRedCount >= 3) {
+              // 4th Red Ghost = DEFEAT! Strict refusal
+              score -= 2000;
+            } else {
+              // Capturing Red is NOT lethal when count < 3!
+              // Scale penalty: 0 red captured -> -5, 1 red captured -> -20, 2 red captured -> -60
+              const baseRedPenalty = aiCapturedRedCount === 0 ? -5 : aiCapturedRedCount === 1 ? -20 : -60;
+              score += baseRedPenalty;
+
+              // Barricade detection: Does this player Red ghost block AI corridor or Blue runners?
+              const isBarricade = activeAiGhosts.some(
+                (ag) => Math.abs(ag.x - target.x) <= 1 && ag.y <= target.y
+              );
+              if (isBarricade) {
+                // High bonus for smashing barricades to liberate advancing runners!
+                const barricadeBonus = aiCapturedRedCount === 0 ? 60 : aiCapturedRedCount === 1 ? 45 : 25;
+                score += barricadeBonus;
+              }
+            }
           } else {
             score += 20;
           }
         }
 
         if (ghost.color === 'blue') {
-          // AI Blue Ghost: Race to exit while keeping safe from capture
+          // AI Blue Ghost: Race toward designated gate while avoiding traps
           score += (target.y - ghost.y) * 25;
-          score += (10 - distToExit) * 12;
+          score += (10 - distToExit) * 14;
 
           // Check if target is threatened by any player ghost
           const isThreatened = activePlayerGhosts.some(
             (pg) => Math.abs(pg.x - target.x) + Math.abs(pg.y - target.y) === 1
           );
           if (isThreatened) {
-            score -= 50;
+            const isExitGate = (target.x === 0 || target.x === 5) && target.y === 5;
+            score -= isExitGate ? 140 : 65;
+          }
+
+          // Bonus if fleeing from current threatened position to a safe tile
+          const isCurrentlyThreatened = activePlayerGhosts.some(
+            (pg) => Math.abs(pg.x - ghost.x) + Math.abs(pg.y - ghost.y) === 1
+          );
+          if (isCurrentlyThreatened && !isThreatened) {
+            score += 45;
           }
         } else {
-          // AI Red Ghost: Aggressively screen, pin, or bait player's blue ghosts
-          score += (target.y - ghost.y) * 15;
-          // Red ghosts love being threatened by player's pieces!
-          const isThreatenedByPlayer = activePlayerGhosts.some(
-            (pg) => Math.abs(pg.x - target.x) + Math.abs(pg.y - target.y) === 1
-          );
-          if (isThreatenedByPlayer) {
-            score += 40;
+          // AI Red Ghost: Vanguard bodyguard & sacrificial screen
+          score += (target.y - ghost.y) * 16;
+
+          // 1. Vanguard Screen: Position ahead of advancing Blue teammates
+          for (const bg of activeAiBlues) {
+            if (target.y >= bg.y && Math.abs(target.x - bg.x) <= 1) {
+              score += 30; // Vanguard bodyguard bonus!
+            }
+          }
+
+          // 2. Interposition: Step between threatening player ghost and Blue teammate
+          for (const bg of activeAiBlues) {
+            const threateningPlayers = activePlayerGhosts.filter(
+              (pg) => Math.abs(pg.x - bg.x) + Math.abs(pg.y - bg.y) === 1
+            );
+            if (threateningPlayers.length > 0) {
+              const isBlockingThreat = threateningPlayers.some(
+                (pg) => Math.abs(pg.x - target.x) + Math.abs(pg.y - target.y) <= 1
+              );
+              if (isBlockingThreat) {
+                score += 40;
+              }
+            }
+          }
+
+          // 3. Poison Bait: If player has 3 red captured, stepping in front of player is lethal trap!
+          if (playerCapturedAiRedCount === 3) {
+            const isNearPlayer = activePlayerGhosts.some(
+              (pg) => Math.abs(pg.x - target.x) + Math.abs(pg.y - target.y) === 1
+            );
+            if (isNearPlayer) {
+              score += 180; // Instant win if player takes the bait!
+            }
+          } else {
+            // General bait bonus: Red ghosts like being threatened by player
+            const isThreatenedByPlayer = activePlayerGhosts.some(
+              (pg) => Math.abs(pg.x - target.x) + Math.abs(pg.y - target.y) === 1
+            );
+            if (isThreatenedByPlayer) {
+              score += 35;
+            }
           }
         }
       } else {
         // --- HARD DIFFICULTY (TACTICAL BLUFFING, FAIR PLAY) ---
-        // Does not cheat, evaluates threat zones & bluff potential
-        if (ghost.color === 'blue') {
-          score += (target.y - ghost.y) * 18;
-          score += (10 - distToExit) * 6;
-
-          if (targetGhost) {
-            score += 20;
+        if (targetGhost) {
+          if (aiCapturedRedCount >= 3) {
+            score -= 30;
+          } else {
+            score += aiCapturedRedCount === 0 ? 35 : 20;
           }
+        }
+
+        if (ghost.color === 'blue') {
+          score += (target.y - ghost.y) * 20;
+          score += (10 - distToExit) * 8;
 
           const isThreatened = activePlayerGhosts.some(
             (pg) => Math.abs(pg.x - target.x) + Math.abs(pg.y - target.y) === 1
           );
           if (isThreatened) {
-            score -= 35;
+            const isExitGate = (target.x === 0 || target.x === 5) && target.y === 5;
+            score -= isExitGate ? 100 : 40;
           }
         } else {
-          // Red Ghost: aggressive bluffing
-          score += (target.y - ghost.y) * 20;
-          if (targetGhost) {
-            score += 25;
+          // Red Ghost: aggressive bluffing and screening
+          score += (target.y - ghost.y) * 18;
+          for (const bg of activeAiBlues) {
+            if (target.y >= bg.y && Math.abs(target.x - bg.x) <= 1) {
+              score += 25;
+            }
           }
-
           const isThreatened = activePlayerGhosts.some(
             (pg) => Math.abs(pg.x - target.x) + Math.abs(pg.y - target.y) === 1
           );
           if (isThreatened) {
-            score += 30; // red ghost wants to get captured
+            score += playerCapturedAiRedCount === 3 ? 120 : 30;
           }
-          score += (10 - distToExit) * 3;
+          score += (10 - distToExit) * 4;
         }
       }
 
