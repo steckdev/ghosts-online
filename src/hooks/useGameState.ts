@@ -160,7 +160,6 @@ export function useGameState({
       }
 
       // 4. Board Elimination Check for custom levels & puzzle scenarios:
-      // If opponent has 0 active ghosts left on the board, or all opponent blue ghosts are captured
       if (!winningPlayer) {
         const activeAiGhosts = currentGhosts.filter((g) => g.owner === 'p2' && !g.isCaptured && !g.hasEscaped);
         const activeP1Ghosts = currentGhosts.filter((g) => g.owner === 'p1' && !g.isCaptured && !g.hasEscaped);
@@ -168,17 +167,25 @@ export function useGameState({
         const activeAiBlueGhosts = activeAiGhosts.filter(
           (g) => g.color === 'blue' || aiSecretColorsRef.current[g.id] === 'blue'
         );
+        const activeP1BlueGhosts = activeP1Ghosts.filter((g) => g.color === 'blue');
 
-        if (gameMode === 'levels') {
-          if (activeAiGhosts.length === 0 || activeAiBlueGhosts.length === 0) {
-            winningPlayer = 'p1';
-            winReasonDetermined = 'captured_all_blue';
-          }
-        } else if (activeAiGhosts.length === 0) {
-          winningPlayer = 'p1';
-          winReasonDetermined = 'captured_all_blue';
-        } else if (activeP1Ghosts.length === 0) {
+        const p1StartedWithBlue =
+          gameMode === 'levels'
+            ? (currentLevel?.playerGhosts.some((g) => g.color === 'blue') ?? true)
+            : true;
+        const aiStartedWithBlue =
+          gameMode === 'levels'
+            ? (currentLevel?.aiGhosts.some((g) => g.color === 'blue') ?? true)
+            : true;
+
+        // Player 1 defeated: 0 active ghosts left, or all player blue ghosts captured
+        if (activeP1Ghosts.length === 0 || (p1StartedWithBlue && activeP1BlueGhosts.length === 0)) {
           winningPlayer = 'p2';
+          winReasonDetermined = 'captured_all_blue';
+        }
+        // AI defeated: 0 active ghosts left, or all AI blue ghosts captured
+        else if (activeAiGhosts.length === 0 || (aiStartedWithBlue && activeAiBlueGhosts.length === 0)) {
+          winningPlayer = 'p1';
           winReasonDetermined = 'captured_all_blue';
         }
       }

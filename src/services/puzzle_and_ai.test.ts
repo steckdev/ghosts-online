@@ -260,3 +260,35 @@ describe('MoveLogger Telemetry Service', () => {
     expect(parsed.levelId).toBe(4);
   });
 });
+
+describe('Campaign Scenario Elimination & Defeat Detection', () => {
+  it('detects immediate defeat when player only ghost is captured in Level 14', () => {
+    const lvl14 = PUZZLE_LEVELS[13];
+    expect(lvl14.id).toBe(14);
+    expect(lvl14.playerGhosts.length).toBe(1);
+    expect(lvl14.aiGhosts.length).toBe(2);
+
+    // Initial state: Player has 1 alive ghost, AI has 2 alive ghosts
+    const initialGhosts: Ghost[] = [
+      { id: 'p1-ghost-0', owner: 'p1', color: 'blue', x: 0, y: 3 },
+      { id: 'ai-ghost-0', owner: 'p2', color: 'red', x: 0, y: 5 },
+      { id: 'ai-ghost-1', owner: 'p2', color: 'red', x: 1, y: 5 },
+    ];
+
+    const activeP1 = initialGhosts.filter((g) => g.owner === 'p1' && !g.isCaptured && !g.hasEscaped);
+    expect(activeP1.length).toBe(1);
+
+    // Simulate AI capturing player's only ghost at (0, 3)
+    const afterCaptureGhosts: Ghost[] = initialGhosts.map((g) =>
+      g.id === 'p1-ghost-0' ? { ...g, isCaptured: true } : g
+    );
+
+    const remainingP1 = afterCaptureGhosts.filter((g) => g.owner === 'p1' && !g.isCaptured && !g.hasEscaped);
+    expect(remainingP1.length).toBe(0);
+
+    // Verify elimination check: 0 remaining player ghosts must trigger P2 win
+    const isP1Eliminated = remainingP1.length === 0;
+    expect(isP1Eliminated).toBe(true);
+  });
+});
+

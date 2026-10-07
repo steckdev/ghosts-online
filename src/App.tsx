@@ -823,6 +823,7 @@ export const App: React.FC = () => {
             isMyTurn={isMyTurnNow}
             localPlayer={activeTurnPlayer}
             capturedGhosts={capturedGhosts}
+            allGhosts={ghosts}
             currentLevel={campaign.currentLevel || undefined}
             levelMovesTaken={campaign.levelMovesTaken}
             aiDifficulty={aiDifficulty}

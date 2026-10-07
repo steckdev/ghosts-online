@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import type { PlayerRole, GameMode, CapturedGhost, PuzzleLevel, AIDifficulty } from '../types/game';
+import type { PlayerRole, GameMode, CapturedGhost, PuzzleLevel, AIDifficulty, Ghost } from '../types/game';
 import {
   Volume2,
   VolumeX,
@@ -24,6 +24,7 @@ interface HeaderHudProps {
   isMyTurn: boolean;
   localPlayer: PlayerRole;
   capturedGhosts: CapturedGhost[];
+  allGhosts?: Ghost[];
   currentLevel?: PuzzleLevel;
   levelMovesTaken?: number;
   aiDifficulty?: AIDifficulty;
@@ -40,6 +41,7 @@ export const HeaderHud: React.FC<HeaderHudProps> = ({
   isMyTurn,
   localPlayer,
   capturedGhosts,
+  allGhosts,
   currentLevel,
   levelMovesTaken = 0,
   aiDifficulty,
@@ -81,6 +83,24 @@ export const HeaderHud: React.FC<HeaderHudProps> = ({
   const opponentBadCaptured = capturedGhosts.filter(
     (g) => g.owner === opponentRole && g.color === 'red'
   ).length;
+
+  // Active living ghosts on board
+  const activePlayerCount = allGhosts
+    ? allGhosts.filter((g) => g.owner === localPlayer && !g.isCaptured && !g.hasEscaped).length
+    : undefined;
+  const activeOpponentCount = allGhosts
+    ? allGhosts.filter((g) => g.owner === opponentRole && !g.isCaptured && !g.hasEscaped).length
+    : undefined;
+
+  // Level enemy ghost targets (including any preloaded captured)
+  const levelAiBlueTotal = currentLevel
+    ? currentLevel.aiGhosts.filter((g) => g.color === 'blue').length +
+      (currentLevel.initialCaptured?.filter((g) => g.owner === 'p2' && g.color === 'blue').length || 0)
+    : 4;
+  const levelAiRedTotal = currentLevel
+    ? currentLevel.aiGhosts.filter((g) => g.color === 'red').length +
+      (currentLevel.initialCaptured?.filter((g) => g.owner === 'p2' && g.color === 'red').length || 0)
+    : 4;
 
   return (
     <header className="header-hud">
@@ -176,6 +196,9 @@ export const HeaderHud: React.FC<HeaderHudProps> = ({
                 <span className="room-title">Lvl {currentLevel.id}: {currentLevel.name}</span>
                 <span className="conn-status campaign-sub">
                   Moves: <strong className="moves-counter-hud">{levelMovesTaken}</strong> / Par: {currentLevel.parMoves}
+                  {activeOpponentCount !== undefined && activePlayerCount !== undefined && (
+                    <> • Foes: <strong className="count-red">{activeOpponentCount}</strong> • You: <strong className="count-blue">{activePlayerCount}</strong></>
+                  )}
                 </span>
               </div>
             </div>
@@ -236,18 +259,41 @@ export const HeaderHud: React.FC<HeaderHudProps> = ({
         </div>
 
         {/* Captured Tally Pill */}
-        <div className="captured-score-pill" title="Opponent ghosts you have captured">
-          <span className="score-label">Captured</span>
-          <span className="score-counts">
-            <span className="good-count" title="Good ghosts captured (4 = You win!)">
-              👻 <strong className="count-blue">{opponentGoodCaptured}</strong>/4
+        {gameMode === 'levels' && currentLevel ? (
+          <div className="captured-score-pill campaign-tracker-pill" title="Scenario Living & Captured Ghosts Tracker">
+            <div className="campaign-tracker-row">
+              <span className="tracker-item" title="Your ghosts alive on board">
+                You: <strong className="count-blue">{activePlayerCount ?? currentLevel.playerGhosts.length}</strong>
+              </span>
+              <span className="score-divider">•</span>
+              <span className="tracker-item" title="Enemy ghosts alive on board">
+                Foes: <strong className="count-red">{activeOpponentCount ?? currentLevel.aiGhosts.length}</strong>
+              </span>
+            </div>
+            <div className="campaign-breakdown-row">
+              <span className="good-count" title={`${levelAiBlueTotal} Good (Blue) foes in scenario`}>
+                👻 <strong className="count-blue">{opponentGoodCaptured}</strong>/{levelAiBlueTotal}
+              </span>
+              <span className="score-divider">|</span>
+              <span className="bad-count" title={`${levelAiRedTotal} Poison (Red) foes in scenario`}>
+                😈 <strong className="count-red">{opponentBadCaptured}</strong>/{levelAiRedTotal}
+              </span>
+            </div>
+          </div>
+        ) : (
+          <div className="captured-score-pill" title="Opponent ghosts you have captured">
+            <span className="score-label">Captured</span>
+            <span className="score-counts">
+              <span className="good-count" title="Good ghosts captured (4 = You win!)">
+                👻 <strong className="count-blue">{opponentGoodCaptured}</strong>/4
+              </span>
+              <span className="score-divider">|</span>
+              <span className="bad-count" title="Bad ghosts captured (4 = You lose!)">
+                😈 <strong className="count-red">{opponentBadCaptured}</strong>/4
+              </span>
             </span>
-            <span className="score-divider">|</span>
-            <span className="bad-count" title="Bad ghosts captured (4 = You lose!)">
-              😈 <strong className="count-red">{opponentBadCaptured}</strong>/4
-            </span>
-          </span>
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Campaign Level Hint Banner */}
