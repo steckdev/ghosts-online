@@ -14,6 +14,7 @@ export interface AIMoveOptions {
   puzzleBehavior?: PuzzleAIBehavior;
   playerSecretGhosts?: Ghost[];
   capturedGhosts?: CapturedGhost[];
+  lastAIMove?: { ghostId: string; from: { x: number; y: number }; to: { x: number; y: number } } | null;
 }
 
 // Generate valid moves for a ghost on a 6x6 board
@@ -88,6 +89,7 @@ export function calculateAIMove(
   let puzzleBehavior: PuzzleAIBehavior | undefined;
   let playerSecretGhosts: Ghost[] | undefined;
   let capturedGhosts: CapturedGhost[] | undefined;
+  let lastAIMove: { ghostId: string; from: { x: number; y: number }; to: { x: number; y: number } } | null | undefined;
 
   if (typeof optionsOrDifficulty === 'string') {
     difficulty = optionsOrDifficulty;
@@ -95,12 +97,14 @@ export function calculateAIMove(
       puzzleBehavior = legacyOptions.puzzleBehavior;
       playerSecretGhosts = legacyOptions.playerSecretGhosts;
       capturedGhosts = legacyOptions.capturedGhosts;
+      lastAIMove = legacyOptions.lastAIMove;
     }
   } else if (optionsOrDifficulty && typeof optionsOrDifficulty === 'object') {
     difficulty = optionsOrDifficulty.difficulty || 'hard';
     puzzleBehavior = optionsOrDifficulty.puzzleBehavior;
     playerSecretGhosts = optionsOrDifficulty.playerSecretGhosts;
     capturedGhosts = optionsOrDifficulty.capturedGhosts;
+    lastAIMove = optionsOrDifficulty.lastAIMove;
   }
 
   const isDeterministic = !!puzzleBehavior;
@@ -202,6 +206,22 @@ export function calculateAIMove(
       }
       const distToExit = Math.abs(target.x - targetGateX) + Math.abs(5 - target.y);
 
+      // === REVERSAL / OSCILLATION PENALTY ===
+      if (
+        lastAIMove &&
+        lastAIMove.ghostId === ghost.id &&
+        target.x === lastAIMove.from.x &&
+        target.y === lastAIMove.from.y
+      ) {
+        // If reversing previous move does not capture, escape, or defend against an urgent runner:
+        const isEmergencyRunner = escapingPlayerRunners.some(
+          (r) => r.x + r.y <= 1 || (5 - r.x) + r.y <= 1
+        );
+        if (!targetGhost && !target.isExit && !isEmergencyRunner) {
+          score -= 180;
+        }
+      }
+
       // === DEFENSE & ESCAPE PREVENTION ===
       // Player's escape gates in AI coordinates are Gate Right (0, 0) and Gate Left (5, 0)
       for (const runner of escapingPlayerRunners) {
@@ -210,29 +230,54 @@ export function calculateAIMove(
         const gateX = d0 <= d5 ? 0 : 5;
         const runnerDistToGate = Math.min(d0, d5);
 
+        // Orthogonal squares directly guard/threaten the gate in 1 move
+        const isGateOrthogonalTarget =
+          (gateX === 0 && ((target.x === 1 && target.y === 0) || (target.x === 0 && target.y === 1))) ||
+          (gateX === 5 && ((target.x === 4 && target.y === 0) || (target.x === 5 && target.y === 1)));
+        // Diagonal squares cannot guard the gate in 1 move
+        const isGateDiagonalTarget =
+          (gateX === 0 && target.x === 1 && target.y === 1) ||
+          (gateX === 5 && target.x === 4 && target.y === 1);
+
         // 1. DEFCON 1: Runner is already standing on an escape gate!
         if (runnerDistToGate === 0) {
           if (target.x === runner.x && target.y === runner.y) {
             // Immediate game-saving capture!
-            score += 15000;
+            score += 20000;
           }
         }
-        // 2. Runner is 1 step from entering the gate (e.g. at (0, 1), (1, 0), (5, 1), (4, 0))
+        // 2. DEFCON 2: Runner is 1 step from entering the gate (e.g. at (0, 1), (1, 0), (5, 1), (4, 0))
         else if (runnerDistToGate === 1) {
           if (target.x === runner.x && target.y === runner.y) {
-            score += 4000; // Capture the threatening runner
+            score += 6500; // Capture the threatening runner immediately!
           } else if (target.x === gateX && target.y === 0) {
-            score += 900; // Slam the escape door shut!
-          } else if (Math.abs(target.x - runner.x) + Math.abs(target.y - runner.y) === 1) {
-            score += 160; // Step adjacent to intercept
+            score += 4500; // Slam the escape door shut!
+          } else if (isGateOrthogonalTarget) {
+            score += 3200; // Directly threaten gate with orthogonal control!
+          } else if (isGateDiagonalTarget) {
+            score -= 80; // Diagonal cannot protect gate next turn
           }
         }
-        // 3. Runner is 2-3 steps away and approaching the gate
-        else if (runnerDistToGate <= 3) {
+        // 3. DEFCON 3: Runner is 2 steps away from gate
+        else if (runnerDistToGate === 2) {
+          if (target.x === runner.x && target.y === runner.y) {
+            score += 3800; // Intercept approaching runner
+          } else if (target.x === gateX && target.y === 0) {
+            score += 2400; // Sentry guard gate
+          } else if (isGateOrthogonalTarget) {
+            score += 1800; // Guard perimeter
+          } else if (isGateDiagonalTarget) {
+            score -= 40;
+          }
+          const distToRunner = Math.abs(target.x - runner.x) + Math.abs(target.y - runner.y);
+          score += (6 - distToRunner) * 20;
+        }
+        // 4. Runner is 3 steps away and approaching the gate
+        else if (runnerDistToGate === 3) {
           if (target.x === runner.x && target.y === runner.y) {
             score += 2500;
           } else if (target.y <= 1 && Math.abs(target.x - gateX) <= 1) {
-            score += 75; // Sentry guard gate
+            score += 150; // Sentry guard gate
           }
           const distToRunner = Math.abs(target.x - runner.x) + Math.abs(target.y - runner.y);
           score += (6 - distToRunner) * 15;
@@ -372,26 +417,39 @@ export function calculateAIMove(
         // --- HARD DIFFICULTY (TACTICAL BLUFFING, FAIR PLAY) ---
         if (targetGhost) {
           if (aiCapturedRedCount >= 3) {
-            score -= 30;
+            score -= 150;
           } else {
-            score += aiCapturedRedCount === 0 ? 35 : 20;
+            score += aiCapturedRedCount === 0 ? 85 : aiCapturedRedCount === 1 ? 65 : 40;
           }
         }
 
         if (ghost.color === 'blue') {
-          score += (target.y - ghost.y) * 20;
-          score += (10 - distToExit) * 8;
+          score += (target.y - ghost.y) * 28;
+          score += (10 - distToExit) * 16;
+
+          // Sprint finish when within striking distance of exit
+          if (distToExit <= 3) {
+            score += (4 - distToExit) * 35;
+          }
 
           const isThreatened = activePlayerGhosts.some(
             (pg) => Math.abs(pg.x - target.x) + Math.abs(pg.y - target.y) === 1
           );
           if (isThreatened) {
             const isExitGate = (target.x === 0 || target.x === 5) && target.y === 5;
-            score -= isExitGate ? 100 : 40;
+            score -= isExitGate ? 90 : 30;
+          }
+
+          // Bonus if fleeing from current threatened position to safety
+          const isCurrentlyThreatened = activePlayerGhosts.some(
+            (pg) => Math.abs(pg.x - ghost.x) + Math.abs(pg.y - ghost.y) === 1
+          );
+          if (isCurrentlyThreatened && !isThreatened) {
+            score += 40;
           }
         } else {
           // Red Ghost: aggressive bluffing and screening
-          score += (target.y - ghost.y) * 18;
+          score += (target.y - ghost.y) * 16;
           for (const bg of activeAiBlues) {
             if (target.y >= bg.y && Math.abs(target.x - bg.x) <= 1) {
               score += 25;
@@ -401,9 +459,9 @@ export function calculateAIMove(
             (pg) => Math.abs(pg.x - target.x) + Math.abs(pg.y - target.y) === 1
           );
           if (isThreatened) {
-            score += playerCapturedAiRedCount === 3 ? 120 : 30;
+            score += playerCapturedAiRedCount === 3 ? 140 : 35;
           }
-          score += (10 - distToExit) * 4;
+          score += (10 - distToExit) * 5;
         }
       }
 

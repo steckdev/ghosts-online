@@ -421,6 +421,72 @@ describe('AI Emergency Gate Defense & Escape Prevention', () => {
     const movesToEscape = stepsToGate + 1; // 4 + 1 = 5
     expect(movesToEscape).toBe(lvl18.parMoves);
   });
+
+  it('Hard AI chooses orthogonal gate control square (1, 0) over diagonal (1, 1) to guard against runner at (0, 1)', () => {
+    // Recreates Photo 2/3 and Telemetry Session 1:
+    // Player runner is at (0, 1), 1 step from escape gate (0, 0)
+    // AI has ghost at (2, 0) which can reach orthogonal control square (1, 0)
+    // AI also has ghost at (2, 1) which can reach diagonal square (1, 1)
+    const aiGhosts: Ghost[] = [
+      { id: 'ai-gate-guard', owner: 'p2', color: 'red', x: 2, y: 0 },
+      { id: 'ai-other', owner: 'p2', color: 'red', x: 2, y: 1 },
+    ];
+    const playerGhosts: Ghost[] = [
+      { id: 'p1-runner', owner: 'p1', color: 'blue', x: 0, y: 1 },
+    ];
+
+    const decision = calculateAIMove(aiGhosts, playerGhosts, {
+      difficulty: 'hard',
+      playerSecretGhosts: playerGhosts,
+    });
+
+    expect(decision).not.toBeNull();
+    // AI MUST move to (1, 0) to directly control Gate (0, 0) orthogonally!
+    expect(decision?.to).toEqual({ x: 1, y: 0 });
+    expect(decision?.ghostId).toBe('ai-gate-guard');
+  });
+
+  it('AI avoids move reversal / oscillation trap when lastAIMove is provided', () => {
+    // Recreates Session 2 telemetry loop between (2, 0) and (3, 0):
+    // AI ghost is at (2, 0), previously moved from (3, 0)
+    const aiGhosts: Ghost[] = [
+      { id: 'ai-shuffler', owner: 'p2', color: 'red', x: 2, y: 0 },
+    ];
+    const playerGhosts: Ghost[] = [
+      { id: 'p1-idle', owner: 'p1', color: 'unknown', x: 2, y: 4 },
+    ];
+
+    const decision = calculateAIMove(aiGhosts, playerGhosts, {
+      difficulty: 'hard',
+      lastAIMove: {
+        ghostId: 'ai-shuffler',
+        from: { x: 3, y: 0 },
+        to: { x: 2, y: 0 },
+      },
+    });
+
+    expect(decision).not.toBeNull();
+    // AI must NOT reverse back to (3, 0)
+    expect(decision?.to).not.toEqual({ x: 3, y: 0 });
+  });
+
+  it('Hard AI Blue ghost prioritizes advancing towards exit row when in striking distance', () => {
+    // AI Blue ghost is at (0, 3), clear lane towards exit at (0, 5)
+    const aiGhosts: Ghost[] = [
+      { id: 'ai-runner', owner: 'p2', color: 'blue', x: 0, y: 3 },
+    ];
+    const playerGhosts: Ghost[] = [
+      { id: 'p1-distant', owner: 'p1', color: 'unknown', x: 4, y: 1 },
+    ];
+
+    const decision = calculateAIMove(aiGhosts, playerGhosts, {
+      difficulty: 'hard',
+    });
+
+    expect(decision).not.toBeNull();
+    // Blue ghost must advance forward towards exit (to y=4)
+    expect(decision?.to).toEqual({ x: 0, y: 4 });
+  });
 });
 
 

@@ -139,6 +139,20 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                   const isLastMovedFrom = lastMove?.from.x === globalX && lastMove?.from.y === globalY;
                   const isLastMovedTo = lastMove?.to.x === globalX && lastMove?.to.y === globalY;
 
+                  let moveDir: 'up' | 'down' | 'left' | 'right' | null = null;
+                  if (isLastMovedFrom && lastMove) {
+                    const dispFromX = dispX;
+                    const dispFromY = dispY;
+                    const dispToX = flipPerspective ? 5 - lastMove.to.x : lastMove.to.x;
+                    const dispToY = flipPerspective ? 5 - lastMove.to.y : lastMove.to.y;
+                    const ddx = dispToX - dispFromX;
+                    const ddy = dispToY - dispFromY;
+                    if (ddy > 0) moveDir = 'up';
+                    else if (ddy < 0) moveDir = 'down';
+                    else if (ddx > 0) moveDir = 'right';
+                    else if (ddx < 0) moveDir = 'left';
+                  }
+
                   const ghostOnTile = ghosts.find(
                     (g) => !g.isCaptured && !g.hasEscaped && g.x === globalX && g.y === globalY
                   );
@@ -169,6 +183,27 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                           <span className="reticle-corner bottom-left" />
                           <span className="reticle-corner bottom-right" />
                           <div className="reticle-glow-core" />
+                        </div>
+                      )}
+
+                      {/* Last Move Origin Departure Indicator */}
+                      {isLastMovedFrom && (
+                        <div className="last-move-origin-indicator" aria-hidden="true">
+                          <div className="departure-pulse-ring" />
+                          {moveDir && (
+                            <div className={`motion-arrow-hint dir-${moveDir}`}>
+                              ➜
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Last Move Destination Arrival Beacon */}
+                      {isLastMovedTo && (
+                        <div className="last-move-destination-indicator" aria-hidden="true">
+                          <div className="arrival-halo" />
+                          <div className="arrival-ripple-1" />
+                          <div className="arrival-ripple-2" />
                         </div>
                       )}
 

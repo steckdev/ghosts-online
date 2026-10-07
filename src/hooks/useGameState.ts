@@ -55,6 +55,11 @@ export function useGameState({
 
   const aiSecretColorsRef = useRef<Record<string, 'blue' | 'red'>>({});
   const aiTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastAIMoveRef = useRef<{
+    ghostId: string;
+    from: { x: number; y: number };
+    to: { x: number; y: number };
+  } | null>(null);
 
   const [capturedGhosts, setCapturedGhosts] = useState<CapturedGhost[]>(() => initialSession?.capturedGhosts || []);
   const capturedGhostsRef = useRef<CapturedGhost[]>(initialSession?.capturedGhosts || []);
@@ -258,6 +263,7 @@ export function useGameState({
         puzzleBehavior: gameMode === 'levels' ? currentLevel?.aiBehavior : undefined,
         playerSecretGhosts: mySecretGhostsRef.current,
         capturedGhosts: capturedGhostsRef.current,
+        lastAIMove: lastAIMoveRef.current,
       });
 
       if (!aiDecision) {
@@ -352,6 +358,12 @@ export function useGameState({
         isCapture: !!capturedPlayerGhost,
         capturedColor: capturedPlayerGhost ? (capturedPlayerGhost.color as 'blue' | 'red') : undefined,
       });
+
+      lastAIMoveRef.current = {
+        ghostId: aiDecision.ghostId,
+        from: aiDecision.from,
+        to: aiDecision.to,
+      };
 
       const hasWon = checkWinConditions(nextCaptured, updatedGhosts);
       if (!hasWon) {
@@ -542,6 +554,7 @@ export function useGameState({
       validMoves,
       gameMode,
       localPlayer,
+      isPassShieldActive,
       onIncrementLevelMove,
       onSendNetworkMove,
       checkWinConditions,
@@ -606,6 +619,7 @@ export function useGameState({
         clearTimeout(aiTimeoutRef.current);
         aiTimeoutRef.current = null;
       }
+      lastAIMoveRef.current = null;
       setWinner(undefined);
       setWinReason(undefined);
       setSelectedGhostId(null);

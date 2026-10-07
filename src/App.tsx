@@ -725,6 +725,8 @@ export const App: React.FC = () => {
     clearActiveSession();
     resetGameCleanly('lobby');
     campaign.setLevel(null);
+    campaign.setLevelCompleteModalData(null);
+    campaign.setIsLevelSelectOpen(false);
     setIsPassShieldActive(false);
     setIsP2SetupModalOpen(false);
     setPassShieldCustomTitle(undefined);
@@ -925,19 +927,23 @@ export const App: React.FC = () => {
         />
       )}
 
-      {/* Standard Game Over Modal */}
-      {winner && winReason && !campaign.levelCompleteModalData?.isOpen && (
-        <GameOverModal
-          isOpen={gameStatus === 'gameover'}
-          winner={winner}
-          localPlayer={activeTurnPlayer}
-          winReason={winReason}
-          allGhosts={ghosts}
-          onRematch={handleRematch}
-          onHome={handleResetGame}
-          onExportMoves={handleExportMoves}
-        />
-      )}
+      {/* Standard Game Over Modal - never shown for Campaign level victories */}
+      {winner &&
+        winReason &&
+        gameStatus === 'gameover' &&
+        (gameMode !== 'levels' || winner === 'p2') &&
+        !campaign.levelCompleteModalData?.isOpen && (
+          <GameOverModal
+            isOpen={gameStatus === 'gameover'}
+            winner={winner}
+            localPlayer={activeTurnPlayer}
+            winReason={winReason}
+            allGhosts={ghosts}
+            onRematch={handleRematch}
+            onHome={handleResetGame}
+            onExportMoves={handleExportMoves}
+          />
+        )}
     </div>
   );
 };
