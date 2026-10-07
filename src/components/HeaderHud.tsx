@@ -14,6 +14,7 @@ import {
   RotateCcw,
   Grid,
   Lightbulb,
+  Download,
 } from 'lucide-react';
 import { soundManager } from '../audio/soundEffects';
 
@@ -30,6 +31,7 @@ interface HeaderHudProps {
   onResetGame: () => void;
   onRestartLevel?: () => void;
   onOpenLevelSelect?: () => void;
+  onExportMoves?: () => void;
 }
 
 export const HeaderHud: React.FC<HeaderHudProps> = ({
@@ -45,6 +47,7 @@ export const HeaderHud: React.FC<HeaderHudProps> = ({
   onResetGame,
   onRestartLevel,
   onOpenLevelSelect,
+  onExportMoves,
 }) => {
   const [copied, setCopied] = useState(false);
   const [muted, setMuted] = useState(soundManager.isMuted());
@@ -129,6 +132,17 @@ export const HeaderHud: React.FC<HeaderHudProps> = ({
               aria-label="Hint"
             >
               <Lightbulb size={18} />
+            </button>
+          )}
+
+          {onExportMoves && (
+            <button
+              className="hud-icon-btn export-moves-btn"
+              onClick={onExportMoves}
+              title="Export Game Moves (JSON Telemetry)"
+              aria-label="Export Game Moves"
+            >
+              <Download size={18} />
             </button>
           )}
 

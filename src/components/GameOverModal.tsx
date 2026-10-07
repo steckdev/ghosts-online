@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import confetti from 'canvas-confetti';
 import type { PlayerRole, WinReason, Ghost } from '../types/game';
-import { Trophy, Skull, DoorOpen, RefreshCw, Home } from 'lucide-react';
+import { Trophy, Skull, DoorOpen, RefreshCw, Home, Download } from 'lucide-react';
 import { soundManager } from '../audio/soundEffects';
 
 interface GameOverModalProps {
@@ -12,6 +12,7 @@ interface GameOverModalProps {
   allGhosts: Ghost[];
   onRematch: () => void;
   onHome: () => void;
+  onExportMoves?: () => void;
 }
 
 export const GameOverModal: React.FC<GameOverModalProps> = ({
@@ -21,6 +22,7 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
   winReason,
   onRematch,
   onHome,
+  onExportMoves,
 }) => {
   const isWinner = winner === localPlayer;
 
@@ -103,6 +105,16 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
             <Home size={18} />
             <span>Main Menu</span>
           </button>
+          {onExportMoves && (
+            <button
+              className="telemetry-export-btn"
+              onClick={onExportMoves}
+              title="Export match telemetry JSON for AI analysis"
+            >
+              <Download size={15} />
+              <span>Export Moves (JSON Telemetry)</span>
+            </button>
+          )}
         </div>
       </div>
     </div>

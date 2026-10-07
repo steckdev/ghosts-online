@@ -6,18 +6,14 @@ import type {
   GameMode,
   CapturedGhost,
   NetworkMessage,
-  WinReason,
   PuzzleLevel,
   AIDifficulty,
-  LevelProgress,
 } from './types/game';
 import { PUZZLE_LEVELS } from './data/puzzleLevels';
-import {
-  getLevelProgress,
-  saveLevelCompletion,
-  getTotalStars,
-  getCompletedCount,
-} from './utils/levelStorage';
+import { getTotalStars, getCompletedCount } from './utils/levelStorage';
+import { useCampaign } from './hooks/useCampaign';
+import { useGameState } from './hooks/useGameState';
+import { moveLogger } from './utils/moveLogger';
 import { HeaderHud } from './components/HeaderHud';
 import { GameBoard } from './components/GameBoard';
 import { Graveyard } from './components/Graveyard';
@@ -32,7 +28,6 @@ import { PassAndPlaySetupModal } from './components/PassAndPlaySetupModal';
 import { LevelSelectModal } from './components/LevelSelectModal';
 import { LevelCompleteModal } from './components/LevelCompleteModal';
 import { peerService } from './services/peerService';
-import { getValidMovesForGhost, calculateAIMove } from './services/aiService';
 import { soundManager } from './audio/soundEffects';
 import {
   createInitialGhosts,
@@ -57,46 +52,13 @@ export const App: React.FC = () => {
     return saved && saved.ghosts.length > 0 && saved.status === 'playing' ? saved : null;
   });
 
-  // Game states
+  // Top-level mode and role state
   const [gameMode, setGameMode] = useState<GameMode>(() => initialSession?.gameMode || 'ai');
-  const [gameStatus, setGameStatus] = useState<'lobby' | 'waiting' | 'playing' | 'gameover'>(
-    () => initialSession?.status || 'lobby'
-  );
   const [localPlayer, setLocalPlayer] = useState<PlayerRole>(() => initialSession?.localPlayer || 'p1');
-  const [turn, setTurn] = useState<PlayerRole>(() => initialSession?.turn || 'p1');
-  const [turnNumber, setTurnNumber] = useState<number>(() => initialSession?.turnNumber || 1);
-  const [winner, setWinner] = useState<PlayerRole | undefined>(undefined);
-  const [winReason, setWinReason] = useState<WinReason | undefined>(undefined);
+  const localPlayerRef = useRef<PlayerRole>(initialSession?.localPlayer || 'p1');
 
-  // AI Difficulty & 50-Level Campaign State
-  const [aiDifficulty, setAiDifficulty] = useState<AIDifficulty>('hard');
-  const [currentLevel, setCurrentLevel] = useState<PuzzleLevel | null>(null);
-  const currentLevelRef = useRef<PuzzleLevel | null>(null);
-  const [levelMovesTaken, setLevelMovesTaken] = useState<number>(0);
-  const levelMovesTakenRef = useRef<number>(0);
-  const [isLevelSelectOpen, setIsLevelSelectOpen] = useState(false);
-  const [levelProgress, setLevelProgress] = useState<Record<number, LevelProgress>>(() => getLevelProgress());
-  const [levelCompleteModalData, setLevelCompleteModalData] = useState<{
-    isOpen: boolean;
-    level: PuzzleLevel;
-    movesTaken: number;
-    starsEarned: number;
-    isNewBest: boolean;
-    bestMoves: number;
-  } | null>(null);
-  const gameModeRef = useRef<GameMode>(initialSession?.gameMode || 'ai');
-
-  useEffect(() => {
-    gameModeRef.current = gameMode;
-  }, [gameMode]);
-
-  useEffect(() => {
-    currentLevelRef.current = currentLevel;
-  }, [currentLevel]);
-
-  useEffect(() => {
-    levelMovesTakenRef.current = levelMovesTaken;
-  }, [levelMovesTaken]);
+  // Campaign State Hook
+  const campaign = useCampaign();
 
   // Pass & Play Privacy Shield & Setup State
   const [isPassShieldActive, setIsPassShieldActive] = useState<boolean>(false);
@@ -107,69 +69,8 @@ export const App: React.FC = () => {
   const [passShieldCustomSubtitle, setPassShieldCustomSubtitle] = useState<string | undefined>(undefined);
   const p1SavedGhostsRef = useRef<Ghost[]>([]);
   const onShieldUnlockedCallbackRef = useRef<(() => void) | null>(null);
-  const [lastCapturedInfo, setLastCapturedInfo] = useState<{ color: 'blue' | 'red'; capturer: PlayerRole } | undefined>(undefined);
 
-  // Ghosts on the board
-  const [ghosts, setGhosts] = useState<Ghost[]>(() => initialSession?.ghosts || []);
-  const ghostsRef = useRef<Ghost[]>(initialSession?.ghosts || []);
-
-  // Secret ghosts memory
-  const [mySecretGhosts, setMySecretGhosts] = useState<Ghost[]>(() => initialSession?.mySecretGhosts || []);
-  const mySecretGhostsRef = useRef<Ghost[]>(initialSession?.mySecretGhosts || []);
-
-  // AI secret colors dictionary
-  const aiSecretColorsRef = useRef<Record<string, 'blue' | 'red'>>({});
-
-  const [selectedGhostId, setSelectedGhostId] = useState<string | null>(null);
-  const [validMoves, setValidMoves] = useState<{ x: number; y: number; isExit?: boolean }[]>([]);
-
-  // Synchronous ref for captured ghosts
-  const [capturedGhosts, setCapturedGhosts] = useState<CapturedGhost[]>(() => initialSession?.capturedGhosts || []);
-  const capturedGhostsRef = useRef<CapturedGhost[]>(initialSession?.capturedGhosts || []);
-  const localPlayerRef = useRef<PlayerRole>(initialSession?.localPlayer || 'p1');
-  const turnRef = useRef<PlayerRole>(initialSession?.turn || 'p1');
-  const turnNumberRef = useRef<number>(initialSession?.turnNumber || 1);
-  const latestNetworkHandlerRef = useRef<(msg: NetworkMessage) => void>(() => {});
-
-  useEffect(() => {
-    localPlayerRef.current = localPlayer;
-  }, [localPlayer]);
-
-  useEffect(() => {
-    turnRef.current = turn;
-  }, [turn]);
-
-  useEffect(() => {
-    turnNumberRef.current = turnNumber;
-  }, [turnNumber]);
-
-  useEffect(() => {
-    peerService.onMessage = (msg: NetworkMessage) => {
-      latestNetworkHandlerRef.current(msg);
-    };
-  }, []);
-
-  useEffect(() => {
-    ghostsRef.current = ghosts;
-  }, [ghosts]);
-
-  useEffect(() => {
-    mySecretGhostsRef.current = mySecretGhosts;
-  }, [mySecretGhosts]);
-
-  useEffect(() => {
-    capturedGhostsRef.current = capturedGhosts;
-  }, [capturedGhosts]);
-
-  const [lastMove, setLastMove] = useState<{
-    from: { x: number; y: number };
-    to: { x: number; y: number };
-    ghostId: string;
-    isCapture?: boolean;
-    capturedColor?: 'blue' | 'red';
-  } | undefined>(undefined);
-
-  // P2P Online state
+  // Online P2P & Emote state
   const [roomCode, setRoomCode] = useState<string>(() => {
     if (initialSession?.roomCode) return initialSession.roomCode;
     if (typeof window !== 'undefined') {
@@ -181,6 +82,96 @@ export const App: React.FC = () => {
   const [waitingStatusText, setWaitingStatusText] = useState<string>('Connecting to signaling network...');
   const [activeEmotes, setActiveEmotes] = useState<{ id: string; emoji: string; sender: 'me' | 'opponent' }[]>([]);
   const [isRulesOpen, setIsRulesOpen] = useState(false);
+  const latestNetworkHandlerRef = useRef<(msg: NetworkMessage) => void>(() => {});
+
+  useEffect(() => {
+    localPlayerRef.current = localPlayer;
+  }, [localPlayer]);
+
+  // Core Game State Hook
+  const {
+    ghosts,
+    ghostsRef,
+    setGhosts,
+    mySecretGhosts,
+    mySecretGhostsRef,
+    setMySecretGhosts,
+    aiTimeoutRef,
+    capturedGhosts,
+    capturedGhostsRef,
+    setCapturedGhosts,
+    selectedGhostId,
+    validMoves,
+    turn,
+    turnRef,
+    setTurn,
+    turnNumber,
+    turnNumberRef,
+    setTurnNumber,
+    gameStatus,
+    setGameStatus,
+    winner,
+    setWinner,
+    winReason,
+    setWinReason,
+    lastMove,
+    setLastMove,
+    lastCapturedInfo,
+    aiDifficulty,
+    checkWinConditions,
+    handleSelectGhost,
+    handleTileClick,
+    handleEscapeClick,
+    resetGameCleanly,
+    loadLevel,
+    startAIGame,
+    startPassAndPlay,
+    resetForOnlineRematch,
+  } = useGameState({
+    gameMode,
+    localPlayer,
+    currentLevel: campaign.currentLevel,
+    isPassShieldActive,
+    initialSession,
+    onLevelWon: (moves) => {
+      campaign.recordLevelWin(moves);
+    },
+    onIncrementLevelMove: () => {
+      campaign.incrementMoves();
+    },
+    onPassTurnToPlayer: (nextPlayer) => {
+      setPendingNextPlayer(nextPlayer);
+      setIsPassShieldActive(true);
+    },
+    onSendNetworkMove: (data) => {
+      if (data.isCapture && data.targetGhostId) {
+        peerService.sendMessage({
+          type: 'CAPTURE_ATTEMPT',
+          ghostId: data.ghostId,
+          toX: data.toX,
+          toY: data.toY,
+          targetGhostId: data.targetGhostId,
+          nextTurn: data.nextTurn,
+          turnNumber: data.nextTurnNumber,
+        });
+      } else {
+        peerService.sendMessage({
+          type: 'MOVE',
+          ghostId: data.ghostId,
+          toX: data.toX,
+          toY: data.toY,
+          nextTurn: data.nextTurn,
+          turnNumber: data.nextTurnNumber,
+        });
+      }
+    },
+    onSendNetworkEscape: (ghostId) => {
+      peerService.sendMessage({
+        type: 'ESCAPE',
+        ghostId,
+      });
+    },
+  });
 
   // Reconnect WebRTC session upon page reload if mid-match
   useEffect(() => {
@@ -252,262 +243,116 @@ export const App: React.FC = () => {
     capturedGhosts,
   ]);
 
-  // Check Win Conditions with exact evaluation
-  const checkWinConditions = useCallback(
-    (currentCaptured: CapturedGhost[], currentGhosts: Ghost[]): boolean => {
-      // 1. Check Blue captures (4 opponent good ghosts captured -> capturer wins)
-      const p1CapturedBlueFromP2 = currentCaptured.filter((g) => g.owner === 'p2' && g.color === 'blue').length;
-      const p2CapturedBlueFromP1 = currentCaptured.filter((g) => g.owner === 'p1' && g.color === 'blue').length;
-
-      let winningPlayer: PlayerRole | null = null;
-      let winReasonDetermined: WinReason | null = null;
-
-      if (p1CapturedBlueFromP2 >= 4) {
-        winningPlayer = 'p1';
-        winReasonDetermined = 'captured_all_blue';
-      } else if (p2CapturedBlueFromP1 >= 4) {
-        winningPlayer = 'p2';
-        winReasonDetermined = 'captured_all_blue';
-      } else {
-        // 2. Check Red captures (4 bad ghosts captured -> capturer loses, owner WINS)
-        const p1CapturedRedFromP2 = currentCaptured.filter((g) => g.owner === 'p2' && g.color === 'red').length;
-        const p2CapturedRedFromP1 = currentCaptured.filter((g) => g.owner === 'p1' && g.color === 'red').length;
-
-        if (p1CapturedRedFromP2 >= 4) {
-          winningPlayer = 'p2';
-          winReasonDetermined = 'captured_all_red';
-        } else if (p2CapturedRedFromP1 >= 4) {
-          winningPlayer = 'p1';
-          winReasonDetermined = 'captured_all_red';
-        } else {
-          // 3. Check Escaped ghost
-          const escaped = currentGhosts.find((g) => g.hasEscaped);
-          if (escaped) {
-            winningPlayer = escaped.owner;
-            winReasonDetermined = 'escaped';
-          }
-        }
-      }
-
-      if (winningPlayer && winReasonDetermined) {
-        setWinner(winningPlayer);
-        setWinReason(winReasonDetermined);
-        setGameStatus('gameover');
-
-        // Check if player won a Campaign level
-        if (gameModeRef.current === 'levels' && currentLevelRef.current && winningPlayer === 'p1') {
-          const finalMoves = levelMovesTakenRef.current;
-          const result = saveLevelCompletion(
-            currentLevelRef.current.id,
-            finalMoves,
-            currentLevelRef.current.parMoves
-          );
-          const updatedProgress = getLevelProgress();
-          setLevelProgress(updatedProgress);
-          setLevelCompleteModalData({
-            isOpen: true,
-            level: currentLevelRef.current,
-            movesTaken: finalMoves,
-            starsEarned: result.stars,
-            isNewBest: result.isNewBest,
-            bestMoves: updatedProgress[currentLevelRef.current.id]?.bestMoves || finalMoves,
-          });
-        }
-        return true;
-      }
-
-      return false;
+  // Campaign Actions
+  const handleSelectLevel = useCallback(
+    (level: PuzzleLevel) => {
+      setGameMode('levels');
+      campaign.setLevel(level);
+      setLocalPlayer('p1');
+      loadLevel(level);
     },
-    []
+    [campaign, loadLevel]
   );
 
-  // Setup AI match
-  const handleStartAI = (initialGhosts: Ghost[], difficulty: AIDifficulty = 'hard') => {
-    setAiDifficulty(difficulty);
-    setGameMode('ai');
-    gameModeRef.current = 'ai';
-    setCurrentLevel(null);
-    currentLevelRef.current = null;
-    setLevelMovesTaken(0);
-    levelMovesTakenRef.current = 0;
-    setLevelCompleteModalData(null);
-    setLocalPlayer('p1');
-    localPlayerRef.current = 'p1';
-    setTurn('p1');
-    turnRef.current = 'p1';
-    setTurnNumber(1);
-    turnNumberRef.current = 1;
-    setCapturedGhosts([]);
-    capturedGhostsRef.current = [];
-    setLastMove(undefined);
-    setSelectedGhostId(null);
-    setValidMoves([]);
-    setIsPassShieldActive(false);
-
-    const p1Ghosts = initialGhosts.map((g) => ({ ...g, owner: 'p1' as const }));
-    setMySecretGhosts(p1Ghosts);
-    mySecretGhostsRef.current = p1Ghosts;
-
-    const aiColors: ('blue' | 'red')[] = ['blue', 'blue', 'blue', 'blue', 'red', 'red', 'red', 'red'];
-    for (let i = aiColors.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [aiColors[i], aiColors[j]] = [aiColors[j], aiColors[i]];
+  const handleRestartCurrentLevel = useCallback(() => {
+    if (campaign.currentLevel) {
+      handleSelectLevel(campaign.currentLevel);
     }
+  }, [campaign.currentLevel, handleSelectLevel]);
 
-    const aiGhosts: Ghost[] = [];
-    const aiSecretDict: Record<string, 'blue' | 'red'> = {};
-    const slots = [
-      { x: 1, y: 5 }, { x: 2, y: 5 }, { x: 3, y: 5 }, { x: 4, y: 5 },
-      { x: 1, y: 4 }, { x: 2, y: 4 }, { x: 3, y: 4 }, { x: 4, y: 4 },
-    ];
-
-    slots.forEach((slot, idx) => {
-      const id = `p2-ghost-${idx}`;
-      aiSecretDict[id] = aiColors[idx];
-      aiGhosts.push({
-        id,
-        owner: 'p2',
-        color: 'unknown',
-        x: slot.x,
-        y: slot.y,
-      });
-    });
-
-    aiSecretColorsRef.current = aiSecretDict;
-    const initialBoard = [...p1Ghosts, ...aiGhosts];
-    setGhosts(initialBoard);
-    ghostsRef.current = initialBoard;
-    setGameStatus('playing');
-  };
-
-  // Setup Campaign Level
-  const handleSelectLevel = (level: PuzzleLevel) => {
-    setGameMode('levels');
-    gameModeRef.current = 'levels';
-    setCurrentLevel(level);
-    currentLevelRef.current = level;
-    setLevelMovesTaken(0);
-    levelMovesTakenRef.current = 0;
-    setLevelCompleteModalData(null);
-    setLocalPlayer('p1');
-    localPlayerRef.current = 'p1';
-    setTurn('p1');
-    turnRef.current = 'p1';
-    setTurnNumber(1);
-    turnNumberRef.current = 1;
-    setSelectedGhostId(null);
-    setValidMoves([]);
-    setIsPassShieldActive(false);
-    setWinner(undefined);
-    setWinReason(undefined);
-
-    const initCaptured = level.initialCaptured || [];
-    setCapturedGhosts(initCaptured);
-    capturedGhostsRef.current = initCaptured;
-
-    const p1Ghosts: Ghost[] = level.playerGhosts.map((g) => ({
-      ...g,
-      owner: 'p1' as const,
-    }));
-    setMySecretGhosts(p1Ghosts);
-    mySecretGhostsRef.current = p1Ghosts;
-
-    const aiSecretDict: Record<string, 'blue' | 'red'> = {};
-    const aiGhosts: Ghost[] = level.aiGhosts.map((g) => {
-      aiSecretDict[g.id] = g.color;
-      return {
-        id: g.id,
-        owner: 'p2' as const,
-        color: 'unknown' as const,
-        x: g.x,
-        y: g.y,
-      };
-    });
-
-    aiSecretColorsRef.current = aiSecretDict;
-    const initialBoard = [...p1Ghosts, ...aiGhosts];
-    setGhosts(initialBoard);
-    ghostsRef.current = initialBoard;
-    setGameStatus('playing');
-  };
-
-  const handleRestartCurrentLevel = () => {
-    if (currentLevel) {
-      handleSelectLevel(currentLevel);
-    }
-  };
-
-  const handleNextLevel = () => {
-    if (currentLevel && currentLevel.id < 50) {
-      const nextLvl = PUZZLE_LEVELS[currentLevel.id]; // 0-indexed: index id is level id + 1
+  const handleNextLevel = useCallback(() => {
+    if (campaign.currentLevel && campaign.currentLevel.id < 50) {
+      const nextLvl = PUZZLE_LEVELS[campaign.currentLevel.id];
       if (nextLvl) {
         handleSelectLevel(nextLvl);
       }
     }
-  };
+  }, [campaign.currentLevel, handleSelectLevel]);
 
-  // Setup Pass & Play (Battleship Hidden Screen Mode)
-  const handleStartPassAndPlay = (initialGhosts: Ghost[]) => {
-    setGameMode('pass-and-play');
-    setLocalPlayer('p1');
-    setTurn('p1');
-    setTurnNumber(1);
-    setCapturedGhosts([]);
-    capturedGhostsRef.current = [];
-    setLastMove(undefined);
-    setSelectedGhostId(null);
-    setValidMoves([]);
+  // AI Actions
+  const handleStartAI = useCallback(
+    (initialGhosts: Ghost[], difficulty: AIDifficulty = 'hard') => {
+      setGameMode('ai');
+      campaign.setLevel(null);
+      setLocalPlayer('p1');
+      startAIGame(initialGhosts, difficulty);
+    },
+    [campaign, startAIGame]
+  );
 
-    // Player 1's starting arrangement
-    const p1Ghosts = initialGhosts.map((g) => ({ ...g, owner: 'p1' as const }));
-    p1SavedGhostsRef.current = p1Ghosts;
-    setMySecretGhosts(p1Ghosts);
-    mySecretGhostsRef.current = p1Ghosts;
+  // Pass & Play Actions
+  const handleStartPassAndPlay = useCallback(
+    (initialGhosts: Ghost[]) => {
+      setGameMode('pass-and-play');
+      campaign.setLevel(null);
+      setLocalPlayer('p1');
 
-    // Player 2's starting ghosts layout (4 blue, 4 red)
-    const defaultP2Ghosts: Ghost[] = [
-      { id: 'p2-ghost-0', owner: 'p2', color: 'blue', x: 1, y: 5 },
-      { id: 'p2-ghost-1', owner: 'p2', color: 'red', x: 2, y: 5 },
-      { id: 'p2-ghost-2', owner: 'p2', color: 'red', x: 3, y: 5 },
-      { id: 'p2-ghost-3', owner: 'p2', color: 'blue', x: 4, y: 5 },
-      { id: 'p2-ghost-4', owner: 'p2', color: 'red', x: 1, y: 4 },
-      { id: 'p2-ghost-5', owner: 'p2', color: 'blue', x: 2, y: 4 },
-      { id: 'p2-ghost-6', owner: 'p2', color: 'blue', x: 3, y: 4 },
-      { id: 'p2-ghost-7', owner: 'p2', color: 'red', x: 4, y: 4 },
-    ];
-    setP2SetupInitialGhosts(defaultP2Ghosts);
+      const p1Ghosts = initialGhosts.map((g) => ({ ...g, owner: 'p1' as const }));
+      p1SavedGhostsRef.current = p1Ghosts;
 
-    const initialBoard = [...p1Ghosts, ...defaultP2Ghosts];
-    setGhosts(initialBoard);
-    ghostsRef.current = initialBoard;
+      const defaultP2Ghosts: Ghost[] = [
+        { id: 'p2-ghost-0', owner: 'p2', color: 'blue', x: 1, y: 5 },
+        { id: 'p2-ghost-1', owner: 'p2', color: 'red', x: 2, y: 5 },
+        { id: 'p2-ghost-2', owner: 'p2', color: 'red', x: 3, y: 5 },
+        { id: 'p2-ghost-3', owner: 'p2', color: 'blue', x: 4, y: 5 },
+        { id: 'p2-ghost-4', owner: 'p2', color: 'red', x: 1, y: 4 },
+        { id: 'p2-ghost-5', owner: 'p2', color: 'blue', x: 2, y: 4 },
+        { id: 'p2-ghost-6', owner: 'p2', color: 'blue', x: 3, y: 4 },
+        { id: 'p2-ghost-7', owner: 'p2', color: 'red', x: 4, y: 4 },
+      ];
+      setP2SetupInitialGhosts(defaultP2Ghosts);
 
-    // Show privacy shield instructing to hand to Player 2
-    setPendingNextPlayer('p2');
-    setPassShieldCustomTitle('SETUP PHASE: PASS TO PLAYER 2');
-    setPassShieldCustomSubtitle('Hand device to Player 2 to arrange their secret ghosts!');
-    onShieldUnlockedCallbackRef.current = () => {
-      setIsP2SetupModalOpen(true);
-    };
-    setIsPassShieldActive(true);
-    setGameStatus('playing');
-  };
+      startPassAndPlay(p1Ghosts, defaultP2Ghosts);
 
-  const handleConfirmP2Setup = (p2FinalGhosts: Ghost[]) => {
-    setIsP2SetupModalOpen(false);
-    const p1Ghosts = p1SavedGhostsRef.current;
-    const initialBoard = [...p1Ghosts, ...p2FinalGhosts];
-    setGhosts(initialBoard);
-    ghostsRef.current = initialBoard;
+      // Instruct to pass to Player 2 for setup
+      setPendingNextPlayer('p2');
+      setPassShieldCustomTitle('SETUP PHASE: PASS TO PLAYER 2');
+      setPassShieldCustomSubtitle('Hand device to Player 2 to arrange their secret ghosts!');
+      onShieldUnlockedCallbackRef.current = () => {
+        setIsP2SetupModalOpen(true);
+      };
+      setIsPassShieldActive(true);
+    },
+    [campaign, startPassAndPlay]
+  );
 
-    // Hand back to Player 1 for first move
-    setPendingNextPlayer('p1');
-    setPassShieldCustomTitle('READY TO PLAY! PASS TO PLAYER 1');
-    setPassShieldCustomSubtitle('Player 1 takes the first move! Tap 3 times to reveal board.');
-    onShieldUnlockedCallbackRef.current = null;
-    setIsPassShieldActive(true);
-  };
+  const handleConfirmP2Setup = useCallback(
+    (p2FinalGhosts: Ghost[]) => {
+      setIsP2SetupModalOpen(false);
+      const p1Ghosts = p1SavedGhostsRef.current;
+      const initialBoard = [...p1Ghosts, ...p2FinalGhosts];
+      setGhosts(initialBoard);
+      ghostsRef.current = initialBoard;
 
-  const handleShuffleWaitingGhosts = () => {
+      setPendingNextPlayer('p1');
+      setPassShieldCustomTitle('READY TO PLAY! PASS TO PLAYER 1');
+      setPassShieldCustomSubtitle('Player 1 takes the first move! Tap 3 times to reveal board.');
+      onShieldUnlockedCallbackRef.current = null;
+      setIsPassShieldActive(true);
+    },
+    [setGhosts, ghostsRef]
+  );
+
+  const handlePassShieldUnlocked = useCallback(() => {
+    setIsPassShieldActive(false);
+    setPassShieldCustomTitle(undefined);
+    setPassShieldCustomSubtitle(undefined);
+
+    if (onShieldUnlockedCallbackRef.current) {
+      const cb = onShieldUnlockedCallbackRef.current;
+      onShieldUnlockedCallbackRef.current = null;
+      cb();
+      return;
+    }
+
+    setTurn(pendingNextPlayer);
+    setLocalPlayer(pendingNextPlayer);
+    localPlayerRef.current = pendingNextPlayer;
+    setTurnNumber((t) => t + 1);
+  }, [pendingNextPlayer, setTurn, setTurnNumber]);
+
+  // Online Room Hosting & Joining
+  const handleShuffleWaitingGhosts = useCallback(() => {
     soundManager.playSelect();
     const shuffled = shuffleGhostColors(mySecretGhostsRef.current);
     setMySecretGhosts(shuffled);
@@ -516,110 +361,105 @@ export const App: React.FC = () => {
     const updatedBoard = [...shuffled, ...oppPieces];
     setGhosts(updatedBoard);
     ghostsRef.current = updatedBoard;
-  };
+  }, [setMySecretGhosts, mySecretGhostsRef, setGhosts, ghostsRef]);
 
-  // Host Online Room
-  const handleCreateOnlineRoom = async (initialGhosts: Ghost[]) => {
-    setGameMode('online');
-    setLocalPlayer('p1');
-    localPlayerRef.current = 'p1';
-    setIsHost(true);
-    setTurn('p1');
-    setTurnNumber(1);
-    setCapturedGhosts([]);
-    capturedGhostsRef.current = [];
-    setLastMove(undefined);
-    setSelectedGhostId(null);
-    setValidMoves([]);
-    setIsPassShieldActive(false);
-    setWaitingStatusText('Connecting to peer-to-peer signaling network...');
+  const handleCreateOnlineRoom = useCallback(
+    async (initialGhosts: Ghost[]) => {
+      setGameMode('online');
+      campaign.setLevel(null);
+      setLocalPlayer('p1');
+      setIsHost(true);
+      resetGameCleanly('waiting');
+      setWaitingStatusText('Connecting to peer-to-peer signaling network...');
 
-    const p1Ghosts = initialGhosts.map((g) => ({ ...g, owner: 'p1' as const }));
-    setMySecretGhosts(p1Ghosts);
-    mySecretGhostsRef.current = p1Ghosts;
+      const p1Ghosts = initialGhosts.map((g) => ({ ...g, owner: 'p1' as const }));
+      setMySecretGhosts(p1Ghosts);
+      mySecretGhostsRef.current = p1Ghosts;
 
-    setGameStatus('waiting');
+      moveLogger.startNewSession({
+        gameMode: 'online',
+      });
 
-    try {
-      const code = await peerService.createRoom();
-      setRoomCode(code);
-      setWaitingStatusText('Room active! Waiting for Player 2 to enter code or join link...');
+      try {
+        const code = await peerService.createRoom();
+        setRoomCode(code);
+        setWaitingStatusText('Room active! Waiting for Player 2 to enter code or join link...');
 
-      const p2Ghosts = createInitialOpponentGhosts('p2');
-      const initialBoard = [...p1Ghosts, ...p2Ghosts];
-      setGhosts(initialBoard);
-      ghostsRef.current = initialBoard;
+        const p2Ghosts = createInitialOpponentGhosts('p2');
+        const initialBoard = [...p1Ghosts, ...p2Ghosts];
+        setGhosts(initialBoard);
+        ghostsRef.current = initialBoard;
 
-      peerService.onPeerJoined = () => {
+        peerService.onPeerJoined = () => {
+          soundManager.playTurnAlert();
+          peerService.sendMessage({
+            type: 'SYNC_SETUP',
+            ghosts: p1Ghosts.map((g) => ({ id: g.id, x: g.x, y: g.y })),
+          });
+          setGameStatus('playing');
+        };
+
+        peerService.onError = (err) => {
+          setWaitingStatusText(`Connection notice: ${err.message}`);
+        };
+      } catch (err) {
+        console.error(err);
+        setWaitingStatusText('Could not connect to signaling broker. Please check internet connection.');
+      }
+    },
+    [campaign, resetGameCleanly, setMySecretGhosts, mySecretGhostsRef, setGhosts, ghostsRef, setGameStatus]
+  );
+
+  const handleJoinOnlineRoom = useCallback(
+    async (code: string, initialGhosts: Ghost[]) => {
+      setGameMode('online');
+      campaign.setLevel(null);
+      setLocalPlayer('p2');
+      setIsHost(false);
+      resetGameCleanly('waiting');
+
+      const p2Ghosts = initialGhosts.map((g, idx) => ({
+        ...g,
+        id: `p2-ghost-${idx}`,
+        owner: 'p2' as const,
+        x: g.x,
+        y: g.y,
+      }));
+      setMySecretGhosts(p2Ghosts);
+      mySecretGhostsRef.current = p2Ghosts;
+
+      setRoomCode(code.toUpperCase());
+      setWaitingStatusText(`Connecting to Room ${code.toUpperCase()}...`);
+
+      moveLogger.startNewSession({
+        gameMode: 'online',
+      });
+
+      try {
+        const p1Ghosts = createInitialOpponentGhosts('p1');
+        const initialBoard = [...p2Ghosts, ...p1Ghosts];
+        setGhosts(initialBoard);
+        ghostsRef.current = initialBoard;
+
+        await peerService.joinRoom(code);
+        setWaitingStatusText('Connected to Host! Synchronizing dungeon...');
+
         soundManager.playTurnAlert();
         peerService.sendMessage({
           type: 'SYNC_SETUP',
-          ghosts: p1Ghosts.map((g) => ({ id: g.id, x: g.x, y: g.y })),
+          ghosts: p2Ghosts.map((g) => ({ id: g.id, x: g.x, y: g.y })),
         });
         setGameStatus('playing');
-      };
+      } catch (err: unknown) {
+        console.error(err);
+        alert((err as Error).message || 'Failed to connect to room.');
+        setGameStatus('lobby');
+      }
+    },
+    [campaign, resetGameCleanly, setMySecretGhosts, mySecretGhostsRef, setGhosts, ghostsRef, setGameStatus]
+  );
 
-      peerService.onError = (err) => {
-        setWaitingStatusText(`Connection notice: ${err.message}`);
-      };
-    } catch (err) {
-      console.error(err);
-      setWaitingStatusText('Could not connect to signaling broker. Please check internet connection.');
-    }
-  };
-
-  // Join Online Room
-  const handleJoinOnlineRoom = async (code: string, initialGhosts: Ghost[]) => {
-    setGameMode('online');
-    setLocalPlayer('p2');
-    localPlayerRef.current = 'p2';
-    setIsHost(false);
-    setTurn('p1');
-    setTurnNumber(1);
-    setCapturedGhosts([]);
-    capturedGhostsRef.current = [];
-    setLastMove(undefined);
-    setSelectedGhostId(null);
-    setValidMoves([]);
-    setIsPassShieldActive(false);
-
-    const p2Ghosts = initialGhosts.map((g, idx) => ({
-      ...g,
-      id: `p2-ghost-${idx}`,
-      owner: 'p2' as const,
-      x: g.x,
-      y: g.y,
-    }));
-    setMySecretGhosts(p2Ghosts);
-    mySecretGhostsRef.current = p2Ghosts;
-
-    setRoomCode(code.toUpperCase());
-    setWaitingStatusText(`Connecting to Room ${code.toUpperCase()}...`);
-    setGameStatus('waiting');
-
-    try {
-      const p1Ghosts = createInitialOpponentGhosts('p1');
-      const initialBoard = [...p2Ghosts, ...p1Ghosts];
-      setGhosts(initialBoard);
-      ghostsRef.current = initialBoard;
-
-      await peerService.joinRoom(code);
-      setWaitingStatusText('Connected to Host! Synchronizing dungeon...');
-
-      // Connection is open! Immediately send our setup and enter playing!
-      soundManager.playTurnAlert();
-      peerService.sendMessage({
-        type: 'SYNC_SETUP',
-        ghosts: p2Ghosts.map((g) => ({ id: g.id, x: g.x, y: g.y })),
-      });
-      setGameStatus('playing');
-    } catch (err: unknown) {
-      console.error(err);
-      alert((err as Error).message || 'Failed to connect to room.');
-      setGameStatus('lobby');
-    }
-  };
-
+  // Emotes
   const handleShowEmote = useCallback((emoji: string, sender: 'me' | 'opponent') => {
     const id = `${Date.now()}-${Math.random()}`;
     setActiveEmotes((prev) => [...prev, { id, emoji, sender }]);
@@ -628,44 +468,21 @@ export const App: React.FC = () => {
     }, 2500);
   }, []);
 
-  const handleResetForRematch = useCallback(() => {
-    setWinner(undefined);
-    setWinReason(undefined);
-    setCapturedGhosts([]);
-    capturedGhostsRef.current = [];
-    setLastMove(undefined);
-    setSelectedGhostId(null);
-    setValidMoves([]);
-    setIsPassShieldActive(false);
-    setTurn('p1');
-    setTurnNumber(1);
+  const handleSendEmote = useCallback(
+    (emoji: string) => {
+      handleShowEmote(emoji, 'me');
+      if (gameMode === 'online') {
+        peerService.sendMessage({
+          type: 'EMOTE',
+          emoji,
+          sender: localPlayerRef.current,
+        });
+      }
+    },
+    [handleShowEmote, gameMode]
+  );
 
-    const myRole = localPlayerRef.current;
-    const oppRole: PlayerRole = myRole === 'p1' ? 'p2' : 'p1';
-    const slots = [
-      { x: 1, y: 0 }, { x: 2, y: 0 }, { x: 3, y: 0 }, { x: 4, y: 0 },
-      { x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 1 }, { x: 4, y: 1 },
-    ];
-    const myPieces = mySecretGhostsRef.current.map((g, idx) => ({
-      ...g,
-      x: slots[idx].x,
-      y: slots[idx].y,
-      isCaptured: false,
-      hasEscaped: false,
-    }));
-    setMySecretGhosts(myPieces);
-    mySecretGhostsRef.current = myPieces;
-
-    const oppPieces = createInitialOpponentGhosts(oppRole);
-    const initialBoard = myRole === 'p1' ? [...myPieces, ...oppPieces] : [...oppPieces, ...myPieces];
-    setGhosts(initialBoard);
-    ghostsRef.current = initialBoard;
-
-    setGameStatus('playing');
-    soundManager.playTurnAlert();
-  }, []);
-
-  // Network messages
+  // Network messages listener
   const handleNetworkMessage = useCallback(
     (msg: NetworkMessage) => {
       const myRole = localPlayerRef.current;
@@ -685,7 +502,6 @@ export const App: React.FC = () => {
         ghostsRef.current = syncedBoard;
         setGameStatus('playing');
 
-        // If I am Host and I received SYNC_SETUP from Guest, ensure my setup is sent too
         if (myRole === 'p1') {
           peerService.sendMessage({
             type: 'SYNC_SETUP',
@@ -694,7 +510,6 @@ export const App: React.FC = () => {
         }
       } else if (msg.type === 'STATE_SYNC') {
         const myPieces = mySecretGhostsRef.current;
-
         const updatedOppPieces: Ghost[] = msg.ghosts
           .filter((g) => g.id.startsWith(opponentRole))
           .map((g) => ({
@@ -860,7 +675,7 @@ export const App: React.FC = () => {
         setWinReason('escaped');
         setGameStatus('gameover');
       } else if (msg.type === 'REMATCH_REQUEST') {
-        handleResetForRematch();
+        resetForOnlineRematch();
         peerService.sendMessage({
           type: 'SYNC_SETUP',
           ghosts: mySecretGhostsRef.current.map((g) => ({ id: g.id, x: g.x, y: g.y })),
@@ -869,399 +684,59 @@ export const App: React.FC = () => {
         handleShowEmote(msg.emoji, 'opponent');
       }
     },
-    [checkWinConditions, handleShowEmote, handleResetForRematch]
+    [
+      checkWinConditions,
+      handleShowEmote,
+      resetForOnlineRematch,
+      setGhosts,
+      ghostsRef,
+      setGameStatus,
+      setMySecretGhosts,
+      mySecretGhostsRef,
+      setTurn,
+      setTurnNumber,
+      setCapturedGhosts,
+      capturedGhostsRef,
+      setLastMove,
+      setWinner,
+      setWinReason,
+      turnRef,
+      turnNumberRef,
+    ]
   );
 
   useEffect(() => {
     latestNetworkHandlerRef.current = handleNetworkMessage;
   });
 
-  const handleSendEmote = (emoji: string) => {
-    handleShowEmote(emoji, 'me');
-    if (gameMode === 'online') {
-      peerService.sendMessage({
-        type: 'EMOTE',
-        emoji,
-        sender: localPlayerRef.current,
-      });
+  useEffect(() => {
+    peerService.onMessage = (msg: NetworkMessage) => {
+      latestNetworkHandlerRef.current(msg);
+    };
+  }, []);
+
+  // Forfeit / Exit Game to Main Menu
+  const handleResetGame = useCallback(() => {
+    if (aiTimeoutRef.current) {
+      clearTimeout(aiTimeoutRef.current);
+      aiTimeoutRef.current = null;
     }
-  };
-
-  // Active player in current turn (In Pass & Play, active player is the current turn player!)
-  const activeTurnPlayer = gameMode === 'pass-and-play' ? turn : localPlayer;
-  const isMyTurnNow = gameMode === 'pass-and-play' ? true : turn === localPlayer;
-
-  // Player selection
-  const handleSelectGhost = (ghost: Ghost) => {
-    if (!isMyTurnNow) return;
-    if (gameStatus !== 'playing') return;
-    if (isPassShieldActive) return;
-
-    soundManager.playSelect();
-    if (selectedGhostId === ghost.id) {
-      setSelectedGhostId(null);
-      setValidMoves([]);
-      return;
-    }
-
-    setSelectedGhostId(ghost.id);
-    const moves = getValidMovesForGhost(ghost, ghostsRef.current, ghost.owner, true, gameMode === 'online');
-    setValidMoves(moves);
-  };
-
-  // Move execution
-  const handleTileClick = (targetX: number, targetY: number) => {
-    if (!selectedGhostId) return;
-    if (isPassShieldActive) return;
-
-    const movingGhost = ghostsRef.current.find((g) => g.id === selectedGhostId);
-    if (!movingGhost) return;
-
-    const isValid = validMoves.some((m) => m.x === targetX && m.y === targetY && !m.isExit);
-    if (!isValid) return;
-
-    const fromPos = { x: movingGhost.x, y: movingGhost.y };
-    const toPos = { x: targetX, y: targetY };
-
-    const targetGhost = ghostsRef.current.find(
-      (g) => !g.isCaptured && !g.hasEscaped && g.x === targetX && g.y === targetY
-    );
-
-    let isCapture = false;
-    let revealedColor: 'blue' | 'red' | undefined = undefined;
-
-    if (targetGhost && targetGhost.owner !== movingGhost.owner) {
-      isCapture = true;
-      if (gameMode === 'ai' || gameMode === 'levels') {
-        revealedColor = aiSecretColorsRef.current[targetGhost.id] || 'blue';
-      } else {
-        revealedColor = targetGhost.color as 'blue' | 'red';
-      }
-    }
-
-    const updatedGhosts = ghostsRef.current.map((g) => {
-      if (targetGhost && g.id === targetGhost.id) {
-        return {
-          ...g,
-          isCaptured: true,
-          color: revealedColor || g.color,
-        };
-      }
-      if (g.id === movingGhost.id) {
-        return { ...g, x: targetX, y: targetY };
-      }
-      return g;
-    });
-
-    setGhosts(updatedGhosts);
-    ghostsRef.current = updatedGhosts;
-
-    // Keep secret ghost positions updated so re-syncs and recovery maintain current board state
-    if (movingGhost.owner === localPlayerRef.current) {
-      setMySecretGhosts((prev) =>
-        prev.map((g) => (g.id === movingGhost.id ? { ...g, x: targetX, y: targetY } : g))
-      );
-      mySecretGhostsRef.current = mySecretGhostsRef.current.map((g) =>
-        g.id === movingGhost.id ? { ...g, x: targetX, y: targetY } : g
-      );
-    }
-
-    let nextCapturedList = capturedGhostsRef.current;
-    if (isCapture && targetGhost && revealedColor) {
-      const newCaptured: CapturedGhost = {
-        id: targetGhost.id,
-        owner: targetGhost.owner,
-        color: revealedColor,
-        turnNumber,
-      };
-      nextCapturedList = [...capturedGhostsRef.current, newCaptured];
-      setCapturedGhosts(nextCapturedList);
-      capturedGhostsRef.current = nextCapturedList;
-
-      if (revealedColor === 'blue') {
-        soundManager.playCaptureGood();
-      } else {
-        soundManager.playCaptureBad();
-      }
-
-      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-        navigator.vibrate?.([25, 40, 25]);
-      }
-
-      setLastCapturedInfo({
-        color: revealedColor,
-        capturer: movingGhost.owner,
-      });
-    } else {
-      soundManager.playMove();
-      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
-        navigator.vibrate?.(12);
-      }
-      setLastCapturedInfo(undefined);
-    }
-
-    // Increment player move counter in level campaign mode
-    if (gameMode === 'levels' && turn === 'p1') {
-      setLevelMovesTaken((m) => m + 1);
-      levelMovesTakenRef.current += 1;
-    }
-
-    setLastMove({
-      from: fromPos,
-      to: toPos,
-      ghostId: movingGhost.id,
-      isCapture,
-      capturedColor: revealedColor,
-    });
-
-    const nextTurn: PlayerRole = turn === 'p1' ? 'p2' : 'p1';
-    const nextTurnNumber = turnNumber + 1;
-
-    if (gameMode === 'online') {
-      if (isCapture && targetGhost) {
-        peerService.sendMessage({
-          type: 'CAPTURE_ATTEMPT',
-          ghostId: movingGhost.id,
-          toX: targetX,
-          toY: targetY,
-          targetGhostId: targetGhost.id,
-          nextTurn,
-          turnNumber: nextTurnNumber,
-        });
-      } else {
-        peerService.sendMessage({
-          type: 'MOVE',
-          ghostId: movingGhost.id,
-          toX: targetX,
-          toY: targetY,
-          nextTurn,
-          turnNumber: nextTurnNumber,
-        });
-      }
-    }
-
-    setSelectedGhostId(null);
-    setValidMoves([]);
-
-    const hasWon = checkWinConditions(nextCapturedList, updatedGhosts);
-    if (hasWon) return;
-
-    // In Pass & Play: Activate Battleship Privacy Shield before handing over!
-    if (gameMode === 'pass-and-play') {
-      setPendingNextPlayer(nextTurn);
-      setIsPassShieldActive(true);
-    } else {
-      setTurn(nextTurn);
-      turnRef.current = nextTurn;
-      setTurnNumber((t) => t + 1);
-      turnNumberRef.current += 1;
-
-      if ((gameMode === 'ai' || gameMode === 'levels') && nextTurn === 'p2') {
-        triggerAITurn();
-      }
-    }
-  };
-
-  // Unlock callback when next player taps 3 times
-  const handlePassShieldUnlocked = () => {
-    setIsPassShieldActive(false);
-    setPassShieldCustomTitle(undefined);
-    setPassShieldCustomSubtitle(undefined);
-
-    if (onShieldUnlockedCallbackRef.current) {
-      const cb = onShieldUnlockedCallbackRef.current;
-      onShieldUnlockedCallbackRef.current = null;
-      cb();
-      return;
-    }
-
-    setTurn(pendingNextPlayer);
-    setLocalPlayer(pendingNextPlayer);
-    localPlayerRef.current = pendingNextPlayer;
-    setTurnNumber((t) => t + 1);
-  };
-
-  // Escape handling
-  const handleEscapeClick = () => {
-    if (!selectedGhostId) return;
-    const ghost = ghostsRef.current.find((g) => g.id === selectedGhostId);
-    if (!ghost || ghost.color !== 'blue') return;
-
-    // Check exit requirements (in online/AI/levels mode, player advances to y=5; in pass & play, p1 to y=5, p2 to y=0)
-    const isOnlineExit =
-      gameMode === 'online' &&
-      ghost.owner === localPlayerRef.current &&
-      ghost.y === 5 &&
-      (ghost.x === 0 || ghost.x === 5);
-
-    const isP1Exit = ghost.owner === 'p1' && ghost.y === 5 && (ghost.x === 0 || ghost.x === 5);
-    const isP2Exit = ghost.owner === 'p2' && ghost.y === 0 && (ghost.x === 0 || ghost.x === 5);
-
-    if (!isOnlineExit && !isP1Exit && !isP2Exit) return;
-
-    soundManager.playEscape();
-
-    const nextGhosts = ghostsRef.current.map((g) =>
-      g.id === ghost.id ? { ...g, hasEscaped: true } : g
-    );
-    setGhosts(nextGhosts);
-    ghostsRef.current = nextGhosts;
-
-    if (gameMode === 'online') {
-      peerService.sendMessage({
-        type: 'ESCAPE',
-        ghostId: ghost.id,
-      });
-    }
-
-    setWinner(ghost.owner);
-    setWinReason('escaped');
-    setGameStatus('gameover');
-
-    // Handle Campaign Level Victory on escape
-    if (gameModeRef.current === 'levels' && currentLevelRef.current && ghost.owner === 'p1') {
-      const finalMoves = levelMovesTakenRef.current + 1;
-      setLevelMovesTaken(finalMoves);
-      levelMovesTakenRef.current = finalMoves;
-      const result = saveLevelCompletion(
-        currentLevelRef.current.id,
-        finalMoves,
-        currentLevelRef.current.parMoves
-      );
-      const updatedProgress = getLevelProgress();
-      setLevelProgress(updatedProgress);
-      setLevelCompleteModalData({
-        isOpen: true,
-        level: currentLevelRef.current,
-        movesTaken: finalMoves,
-        starsEarned: result.stars,
-        isNewBest: result.isNewBest,
-        bestMoves: updatedProgress[currentLevelRef.current.id]?.bestMoves || finalMoves,
-      });
-    }
-  };
-
-  // AI Turn Execution
-  const triggerAITurn = () => {
-    setTimeout(() => {
-      const current = ghostsRef.current;
-      const aiGhosts = current
-        .filter((g) => g.owner === 'p2')
-        .map((g) => ({
-          ...g,
-          color: aiSecretColorsRef.current[g.id] || 'blue',
-          x: 5 - g.x,
-          y: 5 - g.y,
-        }));
-
-      const playerGhosts = current
-        .filter((g) => g.owner === 'p1')
-        .map((g) => ({
-          ...g,
-          x: 5 - g.x,
-          y: 5 - g.y,
-        }));
-
-      const currentLevelObj = currentLevelRef.current;
-      const currentMode = gameModeRef.current;
-
-      const aiDecision = calculateAIMove(aiGhosts, playerGhosts, {
-        difficulty: aiDifficulty,
-        puzzleBehavior: currentMode === 'levels' ? currentLevelObj?.aiBehavior : undefined,
-        playerSecretGhosts: mySecretGhostsRef.current,
-      });
-      if (!aiDecision) return;
-
-      const targetX = 5 - aiDecision.to.x;
-      const targetY = 5 - aiDecision.to.y;
-
-      if (aiDecision.isExit) {
-        soundManager.playEscape();
-        setWinner('p2');
-        setWinReason('escaped');
-        setGameStatus('gameover');
-        const escapedList = current.map((g) =>
-          g.id === aiDecision.ghostId ? { ...g, hasEscaped: true, color: 'blue' as const } : g
-        );
-        setGhosts(escapedList);
-        ghostsRef.current = escapedList;
-        return;
-      }
-
-      const capturedPlayerGhost = current.find(
-        (g) => !g.isCaptured && !g.hasEscaped && g.owner === 'p1' && g.x === targetX && g.y === targetY
-      );
-
-      let nextCaptured = capturedGhostsRef.current;
-      if (capturedPlayerGhost) {
-        const capObj: CapturedGhost = {
-          id: capturedPlayerGhost.id,
-          owner: 'p1',
-          color: capturedPlayerGhost.color as 'blue' | 'red',
-          turnNumber,
-        };
-        nextCaptured = [...capturedGhostsRef.current, capObj];
-        setCapturedGhosts(nextCaptured);
-        capturedGhostsRef.current = nextCaptured;
-
-        if (capturedPlayerGhost.color === 'blue') {
-          soundManager.playCaptureGood();
-        } else {
-          soundManager.playCaptureBad();
-        }
-      } else {
-        soundManager.playMove();
-      }
-
-      const updatedGhosts = current.map((g) => {
-        if (capturedPlayerGhost && g.id === capturedPlayerGhost.id) {
-          return { ...g, isCaptured: true };
-        }
-        if (g.id === aiDecision.ghostId) {
-          return { ...g, x: targetX, y: targetY };
-        }
-        return g;
-      });
-
-      setGhosts(updatedGhosts);
-      ghostsRef.current = updatedGhosts;
-
-      setLastMove({
-        from: { x: 5 - aiDecision.from.x, y: 5 - aiDecision.from.y },
-        to: { x: targetX, y: targetY },
-        ghostId: aiDecision.ghostId,
-        isCapture: !!capturedPlayerGhost,
-        capturedColor: capturedPlayerGhost ? (capturedPlayerGhost.color as 'blue' | 'red') : undefined,
-      });
-
-      const hasWon = checkWinConditions(nextCaptured, updatedGhosts);
-      if (!hasWon) {
-        setTurn('p1');
-        setTurnNumber((t) => t + 1);
-        soundManager.playTurnAlert();
-      }
-    }, 700);
-  };
-
-  const handleResetGame = () => {
-    clearActiveSession();
     peerService.disconnect();
-    setGameStatus('lobby');
-    setWinner(undefined);
-    setWinReason(undefined);
-    setSelectedGhostId(null);
-    setValidMoves([]);
+    clearActiveSession();
+    resetGameCleanly('lobby');
+    campaign.setLevel(null);
     setIsPassShieldActive(false);
     setIsP2SetupModalOpen(false);
     setPassShieldCustomTitle(undefined);
     setPassShieldCustomSubtitle(undefined);
     onShieldUnlockedCallbackRef.current = null;
-  };
+  }, [aiTimeoutRef, resetGameCleanly, campaign]);
 
-  const handleRematch = () => {
+  // Rematch / Play Again
+  const handleRematch = useCallback(() => {
     if (gameMode === 'levels') {
-      if (currentLevel) {
-        handleSelectLevel(currentLevel);
+      if (campaign.currentLevel) {
+        handleSelectLevel(campaign.currentLevel);
       }
     } else if (gameMode === 'ai') {
       const nextP1 = shuffleGhostColors(mySecretGhostsRef.current);
@@ -1272,7 +747,7 @@ export const App: React.FC = () => {
       );
       handleStartPassAndPlay(nextP1);
     } else if (gameMode === 'online' && peerService.isConnected()) {
-      handleResetForRematch();
+      resetForOnlineRematch();
       peerService.sendMessage({ type: 'REMATCH_REQUEST' });
       peerService.sendMessage({
         type: 'SYNC_SETUP',
@@ -1281,12 +756,29 @@ export const App: React.FC = () => {
     } else {
       handleCreateOnlineRoom(mySecretGhostsRef.current);
     }
-  };
+  }, [
+    gameMode,
+    campaign.currentLevel,
+    handleSelectLevel,
+    handleStartAI,
+    mySecretGhostsRef,
+    aiDifficulty,
+    handleStartPassAndPlay,
+    resetForOnlineRematch,
+    handleCreateOnlineRoom,
+  ]);
 
-  const defaultGhosts = createInitialGhosts('p1');
+  // Export Match Telemetry JSON
+  const handleExportMoves = useCallback(() => {
+    soundManager.playSelect();
+    moveLogger.downloadSessionJSON();
+  }, []);
 
-  // Should board perspective flip? In Pass & Play when Player 2 is taking turn, flip so Player 2 sits at bottom!
+  // Active player in current turn
+  const activeTurnPlayer = gameMode === 'pass-and-play' ? turn : localPlayer;
+  const isMyTurnNow = gameMode === 'pass-and-play' ? true : turn === localPlayer;
   const shouldFlipPerspective = gameMode === 'pass-and-play' && turn === 'p2';
+  const defaultGhosts = createInitialGhosts('p1');
 
   return (
     <div className="app-container">
@@ -1303,9 +795,9 @@ export const App: React.FC = () => {
           onStartPassAndPlay={handleStartPassAndPlay}
           onCreateOnlineRoom={handleCreateOnlineRoom}
           onJoinOnlineRoom={handleJoinOnlineRoom}
-          onOpenLevelSelect={() => setIsLevelSelectOpen(true)}
-          totalStars={getTotalStars(levelProgress)}
-          completedLevelsCount={getCompletedCount(levelProgress)}
+          onOpenLevelSelect={() => campaign.setIsLevelSelectOpen(true)}
+          totalStars={getTotalStars(campaign.levelProgress)}
+          completedLevelsCount={getCompletedCount(campaign.levelProgress)}
           defaultGhosts={defaultGhosts}
           prefilledRoomCode={roomCode}
           initialDifficulty={aiDifficulty}
@@ -1331,13 +823,14 @@ export const App: React.FC = () => {
             isMyTurn={isMyTurnNow}
             localPlayer={activeTurnPlayer}
             capturedGhosts={capturedGhosts}
-            currentLevel={currentLevel || undefined}
-            levelMovesTaken={levelMovesTaken}
+            currentLevel={campaign.currentLevel || undefined}
+            levelMovesTaken={campaign.levelMovesTaken}
             aiDifficulty={aiDifficulty}
             onOpenRules={() => setIsRulesOpen(true)}
             onResetGame={handleResetGame}
             onRestartLevel={handleRestartCurrentLevel}
-            onOpenLevelSelect={() => setIsLevelSelectOpen(true)}
+            onOpenLevelSelect={() => campaign.setIsLevelSelectOpen(true)}
+            onExportMoves={handleExportMoves}
           />
 
           <div className="board-layout-container">
@@ -1405,33 +898,34 @@ export const App: React.FC = () => {
 
       {/* 50-Level Campaign Level Select Modal */}
       <LevelSelectModal
-        isOpen={isLevelSelectOpen}
-        onClose={() => setIsLevelSelectOpen(false)}
+        isOpen={campaign.isLevelSelectOpen}
+        onClose={() => campaign.setIsLevelSelectOpen(false)}
         onSelectLevel={handleSelectLevel}
-        currentLevelId={currentLevel?.id}
+        currentLevelId={campaign.currentLevel?.id}
       />
 
       {/* Campaign Level Victory Modal */}
-      {levelCompleteModalData && (
+      {campaign.levelCompleteModalData && (
         <LevelCompleteModal
-          isOpen={levelCompleteModalData.isOpen}
-          level={levelCompleteModalData.level}
-          movesTaken={levelCompleteModalData.movesTaken}
-          starsEarned={levelCompleteModalData.starsEarned}
-          isNewBest={levelCompleteModalData.isNewBest}
-          bestMoves={levelCompleteModalData.bestMoves}
+          isOpen={campaign.levelCompleteModalData.isOpen}
+          level={campaign.levelCompleteModalData.level}
+          movesTaken={campaign.levelCompleteModalData.movesTaken}
+          starsEarned={campaign.levelCompleteModalData.starsEarned}
+          isNewBest={campaign.levelCompleteModalData.isNewBest}
+          bestMoves={campaign.levelCompleteModalData.bestMoves}
           onNextLevel={handleNextLevel}
           onReplayLevel={handleRestartCurrentLevel}
           onOpenLevelSelect={() => {
-            setLevelCompleteModalData(null);
-            setIsLevelSelectOpen(true);
+            campaign.setLevelCompleteModalData(null);
+            campaign.setIsLevelSelectOpen(true);
           }}
           onBackToMenu={handleResetGame}
+          onExportMoves={handleExportMoves}
         />
       )}
 
-      {/* Standard Game Over Modal (used for loss in levels, and standard wins/losses in AI, PVP) */}
-      {winner && winReason && !levelCompleteModalData?.isOpen && (
+      {/* Standard Game Over Modal */}
+      {winner && winReason && !campaign.levelCompleteModalData?.isOpen && (
         <GameOverModal
           isOpen={gameStatus === 'gameover'}
           winner={winner}
@@ -1440,6 +934,7 @@ export const App: React.FC = () => {
           allGhosts={ghosts}
           onRematch={handleRematch}
           onHome={handleResetGame}
+          onExportMoves={handleExportMoves}
         />
       )}
     </div>

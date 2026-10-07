@@ -1,6 +1,6 @@
 import React from 'react';
 import type { PuzzleLevel } from '../types/game';
-import { Star, ArrowRight, RotateCcw, Grid, Home, Trophy } from 'lucide-react';
+import { Star, ArrowRight, RotateCcw, Grid, Home, Trophy, Download } from 'lucide-react';
 import { soundManager } from '../audio/soundEffects';
 
 interface LevelCompleteModalProps {
@@ -14,6 +14,7 @@ interface LevelCompleteModalProps {
   onReplayLevel: () => void;
   onOpenLevelSelect: () => void;
   onBackToMenu: () => void;
+  onExportMoves?: () => void;
 }
 
 export const LevelCompleteModal: React.FC<LevelCompleteModalProps> = ({
@@ -27,6 +28,7 @@ export const LevelCompleteModal: React.FC<LevelCompleteModalProps> = ({
   onReplayLevel,
   onOpenLevelSelect,
   onBackToMenu,
+  onExportMoves,
 }) => {
   if (!isOpen) return null;
 
@@ -138,6 +140,17 @@ export const LevelCompleteModal: React.FC<LevelCompleteModalProps> = ({
               <span>Menu</span>
             </button>
           </div>
+
+          {onExportMoves && (
+            <button
+              className="telemetry-export-btn"
+              onClick={onExportMoves}
+              title="Export match telemetry JSON for AI analysis"
+            >
+              <Download size={15} />
+              <span>Export Moves (JSON Telemetry)</span>
+            </button>
+          )}
         </div>
       </div>
     </div>

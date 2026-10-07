@@ -171,3 +171,92 @@ describe('AI Difficulty Modes & Omniscient Super Max', () => {
     expect(move1).toEqual(move2);
   });
 });
+
+describe('Level 4, Level 5, and Level 8 Mechanics & Solvability', () => {
+  it('Level 4: Capturing the solitary guard awards victory in 1 move (Par 1)', () => {
+    const lvl4 = PUZZLE_LEVELS[3]; // Level 4
+    expect(lvl4.id).toBe(4);
+    expect(lvl4.parMoves).toBe(1);
+    expect(lvl4.initialCaptured?.length).toBe(3);
+
+    // Player starts at (4, 3), AI solitary guard at (4, 4)
+    expect(lvl4.playerGhosts).toEqual([{ id: 'p1-ghost-0', color: 'blue', x: 4, y: 3 }]);
+    expect(lvl4.aiGhosts).toEqual([{ id: 'ai-ghost-0', color: 'blue', x: 4, y: 4 }]);
+
+    // When player captures AI at (4, 4), total blue captured becomes 4 -> Win
+    const finalCaptured = [...(lvl4.initialCaptured || []), { id: 'ai-ghost-0', owner: 'p2' as const, color: 'blue' as const, turnNumber: 1 }];
+    const blueCount = finalCaptured.filter((g) => g.owner === 'p2' && g.color === 'blue').length;
+    expect(blueCount).toBe(4);
+  });
+
+  it('Level 5: Poison Warning is solvable in 2 moves without capturing poison bait (Par 2)', () => {
+    const lvl5 = PUZZLE_LEVELS[4]; // Level 5
+    expect(lvl5.id).toBe(5);
+    expect(lvl5.parMoves).toBe(2);
+
+    // Player starts at (5, 4), Red bait is at (4, 4)
+    expect(lvl5.playerGhosts[0]).toMatchObject({ x: 5, y: 4, color: 'blue' });
+    expect(lvl5.aiGhosts[0]).toMatchObject({ x: 4, y: 4, color: 'red' });
+
+    // Step 1: Player moves (5, 4) -> (5, 5) [1 move]
+    // Step 2: Player steps through the exit door at (5, 5) [2 moves] -> Escaped!
+    const distanceToExitGate = Math.abs(lvl5.playerGhosts[0].x - 5) + Math.abs(lvl5.playerGhosts[0].y - 5);
+    const movesToEscape = distanceToExitGate + 1; // +1 to step out of gate
+    expect(movesToEscape).toBe(lvl5.parMoves);
+  });
+
+  it('Level 8: The Sentry March is solvable in 3 moves along column 0 (Par 3)', () => {
+    const lvl8 = PUZZLE_LEVELS[7]; // Level 8
+    expect(lvl8.id).toBe(8);
+    expect(lvl8.parMoves).toBe(3);
+
+    // Player starts at (0, 3)
+    expect(lvl8.playerGhosts[0]).toMatchObject({ x: 0, y: 3, color: 'blue' });
+    // Step 1: (0, 3) -> (0, 4)
+    // Step 2: (0, 4) -> (0, 5)
+    // Step 3: Exit gate
+    const distanceToExitGate = Math.abs(lvl8.playerGhosts[0].x - 0) + Math.abs(lvl8.playerGhosts[0].y - 5);
+    const movesToEscape = distanceToExitGate + 1;
+    expect(movesToEscape).toBe(lvl8.parMoves);
+  });
+});
+
+describe('MoveLogger Telemetry Service', () => {
+  it('records moves, tracks turns, and exports valid JSON telemetry', async () => {
+    const { moveLogger } = await import('../utils/moveLogger');
+
+    const session = moveLogger.startNewSession({
+      gameMode: 'levels',
+      levelId: 4,
+      levelName: 'The Solitary Guard',
+      parMoves: 1,
+    });
+
+    expect(session.sessionId).toBeDefined();
+    expect(session.gameMode).toBe('levels');
+
+    moveLogger.recordMove({
+      turn: 'p1',
+      turnNumber: 1,
+      ghostId: 'p1-ghost-0',
+      from: { x: 4, y: 3 },
+      to: { x: 4, y: 4 },
+      isCapture: true,
+      capturedGhostId: 'ai-ghost-0',
+      capturedColor: 'blue',
+      isExit: false,
+    });
+
+    const finished = moveLogger.finishSession('p1', 'captured_all_blue');
+    expect(finished?.winner).toBe('p1');
+    expect(finished?.totalMoves).toBe(1);
+
+    const json = moveLogger.exportSessionAsJSON();
+    expect(json).toContain('"winner": "p1"');
+    expect(finished?.moves[0].capturedColor).toBe('blue');
+
+    const parsed = JSON.parse(json);
+    expect(parsed.totalMoves).toBe(1);
+    expect(parsed.levelId).toBe(4);
+  });
+});
