@@ -318,7 +318,7 @@ export const PUZZLE_LEVELS: PuzzleLevel[] = [
     name: 'The Narrow Corridor',
     tier: 2,
     tierName: 'Phantom Labyrinth',
-    parMoves: 4,
+    parMoves: 5,
     description: 'Center columns 2 and 3 are blocked. Flank through the outer wall.',
     hint: 'Move along column 5 to bypass the roadblock.',
     playerGhosts: [{ id: 'p1-ghost-0', color: 'blue', x: 4, y: 2 }],

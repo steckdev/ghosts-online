@@ -363,3 +363,64 @@ describe('Rematch State Clean Reset Verification', () => {
   });
 });
 
+describe('AI Emergency Gate Defense & Escape Prevention', () => {
+  it('Super Max AI immediately captures player Blue runner standing on the escape gate', () => {
+    // In AI coordinates, player escape gate is at (0, 0)
+    // Player has a Blue runner standing on (0, 0) about to escape next turn!
+    const aiGhosts: Ghost[] = [
+      { id: 'ai-guard', owner: 'p2', color: 'red', x: 0, y: 1 },
+    ];
+    const playerGhosts: Ghost[] = [
+      { id: 'p1-runner', owner: 'p1', color: 'blue', x: 0, y: 0 },
+    ];
+
+    const decision = calculateAIMove(aiGhosts, playerGhosts, {
+      difficulty: 'super_max',
+      playerSecretGhosts: playerGhosts,
+    });
+
+    expect(decision).not.toBeNull();
+    // AI MUST capture the runner on (0, 0) to prevent immediate player victory!
+    expect(decision?.to).toEqual({ x: 0, y: 0 });
+  });
+
+  it('Super Max AI blocks the escape gate when player runner is 1 step away', () => {
+    // Player runner is at (0, 1), 1 step from gate (0, 0)
+    // AI has a guard at (1, 0) that can step onto (0, 0) to slam the door shut
+    const aiGhosts: Ghost[] = [
+      { id: 'ai-guard', owner: 'p2', color: 'red', x: 1, y: 0 },
+    ];
+    const playerGhosts: Ghost[] = [
+      { id: 'p1-runner', owner: 'p1', color: 'blue', x: 0, y: 1 },
+    ];
+
+    const decision = calculateAIMove(aiGhosts, playerGhosts, {
+      difficulty: 'super_max',
+      playerSecretGhosts: playerGhosts,
+    });
+
+    expect(decision).not.toBeNull();
+    // AI steps onto (0, 0) to block the runner from escaping!
+    expect(decision?.to).toEqual({ x: 0, y: 0 });
+  });
+
+  it('Level 18 Narrow Corridor: Has 5 par moves and does not trigger false instant win', () => {
+    const lvl18 = PUZZLE_LEVELS[17];
+    expect(lvl18.id).toBe(18);
+    expect(lvl18.parMoves).toBe(5);
+    expect(lvl18.aiGhosts.length).toBe(2);
+    // AI has 0 Blue ghosts (both are red obstacles)
+    expect(lvl18.aiGhosts.every((g) => g.color === 'red')).toBe(true);
+
+    // Player starts at (4, 2)
+    const p1 = lvl18.playerGhosts[0];
+    expect(p1).toEqual({ id: 'p1-ghost-0', color: 'blue', x: 4, y: 2 });
+
+    // 5-move escape route: (4,2) -> (5,2) -> (5,3) -> (5,4) -> (5,5) -> gate exit
+    const stepsToGate = Math.abs(5 - p1.x) + Math.abs(5 - p1.y); // 1 + 3 = 4
+    const movesToEscape = stepsToGate + 1; // 4 + 1 = 5
+    expect(movesToEscape).toBe(lvl18.parMoves);
+  });
+});
+
+

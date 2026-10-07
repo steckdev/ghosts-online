@@ -175,6 +175,12 @@ export function calculateAIMove(
 
   const activeAiBlues = activeAiGhosts.filter((g) => g.color === 'blue');
 
+  // Identify player ghosts that could be escaping Blue runners (Red ghosts cannot escape)
+  const escapingPlayerRunners = activePlayerGhosts.filter((pg) => {
+    const trueColor = playerColorMap.get(pg.id) || pg.color;
+    return trueColor !== 'red';
+  });
+
   for (const ghost of activeAiGhosts) {
     const validMoves = getValidMovesForGhost(ghost, [...aiGhosts, ...playerGhosts], 'p2', false);
 
@@ -196,6 +202,43 @@ export function calculateAIMove(
       }
       const distToExit = Math.abs(target.x - targetGateX) + Math.abs(5 - target.y);
 
+      // === DEFENSE & ESCAPE PREVENTION ===
+      // Player's escape gates in AI coordinates are Gate Right (0, 0) and Gate Left (5, 0)
+      for (const runner of escapingPlayerRunners) {
+        const d0 = runner.x + runner.y; // distance to (0, 0)
+        const d5 = (5 - runner.x) + runner.y; // distance to (5, 0)
+        const gateX = d0 <= d5 ? 0 : 5;
+        const runnerDistToGate = Math.min(d0, d5);
+
+        // 1. DEFCON 1: Runner is already standing on an escape gate!
+        if (runnerDistToGate === 0) {
+          if (target.x === runner.x && target.y === runner.y) {
+            // Immediate game-saving capture!
+            score += 15000;
+          }
+        }
+        // 2. Runner is 1 step from entering the gate (e.g. at (0, 1), (1, 0), (5, 1), (4, 0))
+        else if (runnerDistToGate === 1) {
+          if (target.x === runner.x && target.y === runner.y) {
+            score += 4000; // Capture the threatening runner
+          } else if (target.x === gateX && target.y === 0) {
+            score += 900; // Slam the escape door shut!
+          } else if (Math.abs(target.x - runner.x) + Math.abs(target.y - runner.y) === 1) {
+            score += 160; // Step adjacent to intercept
+          }
+        }
+        // 3. Runner is 2-3 steps away and approaching the gate
+        else if (runnerDistToGate <= 3) {
+          if (target.x === runner.x && target.y === runner.y) {
+            score += 2500;
+          } else if (target.y <= 1 && Math.abs(target.x - gateX) <= 1) {
+            score += 75; // Sentry guard gate
+          }
+          const distToRunner = Math.abs(target.x - runner.x) + Math.abs(target.y - runner.y);
+          score += (6 - distToRunner) * 15;
+        }
+      }
+
       // --- PUZZLE-SPECIFIC BEHAVIORS ---
       if (puzzleBehavior === 'passive') {
         // Move sideways or backward; avoid advancing aggressively
@@ -206,10 +249,14 @@ export function calculateAIMove(
         score += (target.y - ghost.y) * 35;
         score += (10 - distToExit) * 15;
       } else if (puzzleBehavior === 'guard_doors') {
-        // Sentry near the corner exits
-        const isNearDoor = (target.x <= 1 || target.x >= 4) && target.y >= 3;
-        if (isNearDoor) score += 30;
-        score += (target.y - ghost.y) * 10;
+        // Sentry guarding player's escape doors at (0, 0) and (5, 0)
+        const isNearPlayerDoor = (target.x <= 1 || target.x >= 4) && target.y <= 2;
+        if (isNearPlayerDoor) score += 40;
+        const minDistToRunner = Math.min(
+          ...activePlayerGhosts.map((pg) => Math.abs(pg.x - target.x) + Math.abs(pg.y - target.y))
+        );
+        score += (10 - minDistToRunner) * 15;
+        if (targetGhost) score += 100;
       } else if (puzzleBehavior === 'hunt_blues') {
         // Advance aggressively toward player pieces
         if (targetGhost) score += 60;

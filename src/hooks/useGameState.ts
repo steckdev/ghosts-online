@@ -58,6 +58,7 @@ export function useGameState({
 
   const [capturedGhosts, setCapturedGhosts] = useState<CapturedGhost[]>(() => initialSession?.capturedGhosts || []);
   const capturedGhostsRef = useRef<CapturedGhost[]>(initialSession?.capturedGhosts || []);
+  const currentLevelRef = useRef<PuzzleLevel | null>(currentLevel || null);
 
   const [selectedGhostId, setSelectedGhostId] = useState<string | null>(null);
   const [validMoves, setValidMoves] = useState<{ x: number; y: number; isExit?: boolean }[]>([]);
@@ -107,6 +108,10 @@ export function useGameState({
   useEffect(() => {
     turnNumberRef.current = turnNumber;
   }, [turnNumber]);
+
+  useEffect(() => {
+    currentLevelRef.current = currentLevel || null;
+  }, [currentLevel]);
 
   // Clean up any pending AI timeouts on unmount
   useEffect(() => {
@@ -169,13 +174,14 @@ export function useGameState({
         );
         const activeP1BlueGhosts = activeP1Ghosts.filter((g) => g.color === 'blue');
 
+        const currentLvl = currentLevelRef.current;
         const p1StartedWithBlue =
           gameMode === 'levels'
-            ? (currentLevel?.playerGhosts.some((g) => g.color === 'blue') ?? true)
+            ? (currentLvl ? currentLvl.playerGhosts.some((g) => g.color === 'blue') : false)
             : true;
         const aiStartedWithBlue =
           gameMode === 'levels'
-            ? (currentLevel?.aiGhosts.some((g) => g.color === 'blue') ?? true)
+            ? (currentLvl ? currentLvl.aiGhosts.some((g) => g.color === 'blue') : false)
             : true;
 
         // Player 1 defeated: 0 active ghosts left, or all player blue ghosts captured
@@ -183,7 +189,7 @@ export function useGameState({
           winningPlayer = 'p2';
           winReasonDetermined = 'captured_all_blue';
         }
-        // AI defeated: 0 active ghosts left, or all AI blue ghosts captured
+        // AI defeated: 0 active ghosts left, or all AI blue ghosts captured (only if AI started with blue)
         else if (activeAiGhosts.length === 0 || (aiStartedWithBlue && activeAiBlueGhosts.length === 0)) {
           winningPlayer = 'p1';
           winReasonDetermined = 'captured_all_blue';
@@ -621,6 +627,7 @@ export function useGameState({
   const loadLevel = useCallback(
     (level: PuzzleLevel) => {
       resetGameCleanly('playing');
+      currentLevelRef.current = level;
 
       const initCaptured = level.initialCaptured || [];
       setCapturedGhosts(initCaptured);
