@@ -1,4 +1,5 @@
 import React from 'react';
+import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight } from 'lucide-react';
 import type { Ghost, PlayerRole } from '../types/game';
 import { GhostPiece } from './GhostPiece';
 import { ExitGate } from './ExitGate';
@@ -192,7 +193,10 @@ export const GameBoard: React.FC<GameBoardProps> = ({
                           <div className="departure-pulse-ring" />
                           {moveDir && (
                             <div className={`motion-arrow-hint dir-${moveDir}`}>
-                              ➜
+                              {moveDir === 'up' && <ArrowUp size={24} strokeWidth={2.75} />}
+                              {moveDir === 'down' && <ArrowDown size={24} strokeWidth={2.75} />}
+                              {moveDir === 'left' && <ArrowLeft size={24} strokeWidth={2.75} />}
+                              {moveDir === 'right' && <ArrowRight size={24} strokeWidth={2.75} />}
                             </div>
                           )}
                         </div>
