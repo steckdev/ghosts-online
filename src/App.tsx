@@ -7,7 +7,17 @@ import type {
   CapturedGhost,
   NetworkMessage,
   WinReason,
+  PuzzleLevel,
+  AIDifficulty,
+  LevelProgress,
 } from './types/game';
+import { PUZZLE_LEVELS } from './data/puzzleLevels';
+import {
+  getLevelProgress,
+  saveLevelCompletion,
+  getTotalStars,
+  getCompletedCount,
+} from './utils/levelStorage';
 import { HeaderHud } from './components/HeaderHud';
 import { GameBoard } from './components/GameBoard';
 import { Graveyard } from './components/Graveyard';
@@ -19,6 +29,8 @@ import { WaitingRoom } from './components/WaitingRoom';
 import { PassTurnOverlay } from './components/PassTurnOverlay';
 import { DungeonDecorations } from './components/DungeonDecorations';
 import { PassAndPlaySetupModal } from './components/PassAndPlaySetupModal';
+import { LevelSelectModal } from './components/LevelSelectModal';
+import { LevelCompleteModal } from './components/LevelCompleteModal';
 import { peerService } from './services/peerService';
 import { getValidMovesForGhost, calculateAIMove } from './services/aiService';
 import { soundManager } from './audio/soundEffects';
@@ -55,6 +67,36 @@ export const App: React.FC = () => {
   const [turnNumber, setTurnNumber] = useState<number>(() => initialSession?.turnNumber || 1);
   const [winner, setWinner] = useState<PlayerRole | undefined>(undefined);
   const [winReason, setWinReason] = useState<WinReason | undefined>(undefined);
+
+  // AI Difficulty & 50-Level Campaign State
+  const [aiDifficulty, setAiDifficulty] = useState<AIDifficulty>('hard');
+  const [currentLevel, setCurrentLevel] = useState<PuzzleLevel | null>(null);
+  const currentLevelRef = useRef<PuzzleLevel | null>(null);
+  const [levelMovesTaken, setLevelMovesTaken] = useState<number>(0);
+  const levelMovesTakenRef = useRef<number>(0);
+  const [isLevelSelectOpen, setIsLevelSelectOpen] = useState(false);
+  const [levelProgress, setLevelProgress] = useState<Record<number, LevelProgress>>(() => getLevelProgress());
+  const [levelCompleteModalData, setLevelCompleteModalData] = useState<{
+    isOpen: boolean;
+    level: PuzzleLevel;
+    movesTaken: number;
+    starsEarned: number;
+    isNewBest: boolean;
+    bestMoves: number;
+  } | null>(null);
+  const gameModeRef = useRef<GameMode>(initialSession?.gameMode || 'ai');
+
+  useEffect(() => {
+    gameModeRef.current = gameMode;
+  }, [gameMode]);
+
+  useEffect(() => {
+    currentLevelRef.current = currentLevel;
+  }, [currentLevel]);
+
+  useEffect(() => {
+    levelMovesTakenRef.current = levelMovesTaken;
+  }, [levelMovesTaken]);
 
   // Pass & Play Privacy Shield & Setup State
   const [isPassShieldActive, setIsPassShieldActive] = useState<boolean>(false);
@@ -217,42 +259,60 @@ export const App: React.FC = () => {
       const p1CapturedBlueFromP2 = currentCaptured.filter((g) => g.owner === 'p2' && g.color === 'blue').length;
       const p2CapturedBlueFromP1 = currentCaptured.filter((g) => g.owner === 'p1' && g.color === 'blue').length;
 
+      let winningPlayer: PlayerRole | null = null;
+      let winReasonDetermined: WinReason | null = null;
+
       if (p1CapturedBlueFromP2 >= 4) {
-        setWinner('p1');
-        setWinReason('captured_all_blue');
-        setGameStatus('gameover');
-        return true;
-      }
-      if (p2CapturedBlueFromP1 >= 4) {
-        setWinner('p2');
-        setWinReason('captured_all_blue');
-        setGameStatus('gameover');
-        return true;
+        winningPlayer = 'p1';
+        winReasonDetermined = 'captured_all_blue';
+      } else if (p2CapturedBlueFromP1 >= 4) {
+        winningPlayer = 'p2';
+        winReasonDetermined = 'captured_all_blue';
+      } else {
+        // 2. Check Red captures (4 bad ghosts captured -> capturer loses, owner WINS)
+        const p1CapturedRedFromP2 = currentCaptured.filter((g) => g.owner === 'p2' && g.color === 'red').length;
+        const p2CapturedRedFromP1 = currentCaptured.filter((g) => g.owner === 'p1' && g.color === 'red').length;
+
+        if (p1CapturedRedFromP2 >= 4) {
+          winningPlayer = 'p2';
+          winReasonDetermined = 'captured_all_red';
+        } else if (p2CapturedRedFromP1 >= 4) {
+          winningPlayer = 'p1';
+          winReasonDetermined = 'captured_all_red';
+        } else {
+          // 3. Check Escaped ghost
+          const escaped = currentGhosts.find((g) => g.hasEscaped);
+          if (escaped) {
+            winningPlayer = escaped.owner;
+            winReasonDetermined = 'escaped';
+          }
+        }
       }
 
-      // 2. Check Red captures (4 bad ghosts captured -> capturer loses, owner WINS)
-      const p1CapturedRedFromP2 = currentCaptured.filter((g) => g.owner === 'p2' && g.color === 'red').length;
-      const p2CapturedRedFromP1 = currentCaptured.filter((g) => g.owner === 'p1' && g.color === 'red').length;
+      if (winningPlayer && winReasonDetermined) {
+        setWinner(winningPlayer);
+        setWinReason(winReasonDetermined);
+        setGameStatus('gameover');
 
-      if (p1CapturedRedFromP2 >= 4) {
-        setWinner('p2');
-        setWinReason('captured_all_red');
-        setGameStatus('gameover');
-        return true;
-      }
-      if (p2CapturedRedFromP1 >= 4) {
-        setWinner('p1');
-        setWinReason('captured_all_red');
-        setGameStatus('gameover');
-        return true;
-      }
-
-      // 3. Check Escaped ghost
-      const escaped = currentGhosts.find((g) => g.hasEscaped);
-      if (escaped) {
-        setWinner(escaped.owner);
-        setWinReason('escaped');
-        setGameStatus('gameover');
+        // Check if player won a Campaign level
+        if (gameModeRef.current === 'levels' && currentLevelRef.current && winningPlayer === 'p1') {
+          const finalMoves = levelMovesTakenRef.current;
+          const result = saveLevelCompletion(
+            currentLevelRef.current.id,
+            finalMoves,
+            currentLevelRef.current.parMoves
+          );
+          const updatedProgress = getLevelProgress();
+          setLevelProgress(updatedProgress);
+          setLevelCompleteModalData({
+            isOpen: true,
+            level: currentLevelRef.current,
+            movesTaken: finalMoves,
+            starsEarned: result.stars,
+            isNewBest: result.isNewBest,
+            bestMoves: updatedProgress[currentLevelRef.current.id]?.bestMoves || finalMoves,
+          });
+        }
         return true;
       }
 
@@ -262,11 +322,21 @@ export const App: React.FC = () => {
   );
 
   // Setup AI match
-  const handleStartAI = (initialGhosts: Ghost[]) => {
+  const handleStartAI = (initialGhosts: Ghost[], difficulty: AIDifficulty = 'hard') => {
+    setAiDifficulty(difficulty);
     setGameMode('ai');
+    gameModeRef.current = 'ai';
+    setCurrentLevel(null);
+    currentLevelRef.current = null;
+    setLevelMovesTaken(0);
+    levelMovesTakenRef.current = 0;
+    setLevelCompleteModalData(null);
     setLocalPlayer('p1');
+    localPlayerRef.current = 'p1';
     setTurn('p1');
+    turnRef.current = 'p1';
     setTurnNumber(1);
+    turnNumberRef.current = 1;
     setCapturedGhosts([]);
     capturedGhostsRef.current = [];
     setLastMove(undefined);
@@ -308,6 +378,72 @@ export const App: React.FC = () => {
     setGhosts(initialBoard);
     ghostsRef.current = initialBoard;
     setGameStatus('playing');
+  };
+
+  // Setup Campaign Level
+  const handleSelectLevel = (level: PuzzleLevel) => {
+    setGameMode('levels');
+    gameModeRef.current = 'levels';
+    setCurrentLevel(level);
+    currentLevelRef.current = level;
+    setLevelMovesTaken(0);
+    levelMovesTakenRef.current = 0;
+    setLevelCompleteModalData(null);
+    setLocalPlayer('p1');
+    localPlayerRef.current = 'p1';
+    setTurn('p1');
+    turnRef.current = 'p1';
+    setTurnNumber(1);
+    turnNumberRef.current = 1;
+    setSelectedGhostId(null);
+    setValidMoves([]);
+    setIsPassShieldActive(false);
+    setWinner(undefined);
+    setWinReason(undefined);
+
+    const initCaptured = level.initialCaptured || [];
+    setCapturedGhosts(initCaptured);
+    capturedGhostsRef.current = initCaptured;
+
+    const p1Ghosts: Ghost[] = level.playerGhosts.map((g) => ({
+      ...g,
+      owner: 'p1' as const,
+    }));
+    setMySecretGhosts(p1Ghosts);
+    mySecretGhostsRef.current = p1Ghosts;
+
+    const aiSecretDict: Record<string, 'blue' | 'red'> = {};
+    const aiGhosts: Ghost[] = level.aiGhosts.map((g) => {
+      aiSecretDict[g.id] = g.color;
+      return {
+        id: g.id,
+        owner: 'p2' as const,
+        color: 'unknown' as const,
+        x: g.x,
+        y: g.y,
+      };
+    });
+
+    aiSecretColorsRef.current = aiSecretDict;
+    const initialBoard = [...p1Ghosts, ...aiGhosts];
+    setGhosts(initialBoard);
+    ghostsRef.current = initialBoard;
+    setGameStatus('playing');
+  };
+
+  const handleRestartCurrentLevel = () => {
+    if (currentLevel) {
+      handleSelectLevel(currentLevel);
+    }
+  };
+
+  const handleNextLevel = () => {
+    if (currentLevel && currentLevel.id < 50) {
+      const nextLvl = PUZZLE_LEVELS[currentLevel.id]; // 0-indexed: index id is level id + 1
+      if (nextLvl) {
+        handleSelectLevel(nextLvl);
+      }
+    }
   };
 
   // Setup Pass & Play (Battleship Hidden Screen Mode)
@@ -796,7 +932,7 @@ export const App: React.FC = () => {
 
     if (targetGhost && targetGhost.owner !== movingGhost.owner) {
       isCapture = true;
-      if (gameMode === 'ai') {
+      if (gameMode === 'ai' || gameMode === 'levels') {
         revealedColor = aiSecretColorsRef.current[targetGhost.id] || 'blue';
       } else {
         revealedColor = targetGhost.color as 'blue' | 'red';
@@ -864,6 +1000,12 @@ export const App: React.FC = () => {
       setLastCapturedInfo(undefined);
     }
 
+    // Increment player move counter in level campaign mode
+    if (gameMode === 'levels' && turn === 'p1') {
+      setLevelMovesTaken((m) => m + 1);
+      levelMovesTakenRef.current += 1;
+    }
+
     setLastMove({
       from: fromPos,
       to: toPos,
@@ -910,9 +1052,11 @@ export const App: React.FC = () => {
       setIsPassShieldActive(true);
     } else {
       setTurn(nextTurn);
+      turnRef.current = nextTurn;
       setTurnNumber((t) => t + 1);
+      turnNumberRef.current += 1;
 
-      if (gameMode === 'ai' && nextTurn === 'p2') {
+      if ((gameMode === 'ai' || gameMode === 'levels') && nextTurn === 'p2') {
         triggerAITurn();
       }
     }
@@ -943,7 +1087,7 @@ export const App: React.FC = () => {
     const ghost = ghostsRef.current.find((g) => g.id === selectedGhostId);
     if (!ghost || ghost.color !== 'blue') return;
 
-    // Check exit requirements (in online/AI mode, player advances to y=5; in pass & play, p1 to y=5, p2 to y=0)
+    // Check exit requirements (in online/AI/levels mode, player advances to y=5; in pass & play, p1 to y=5, p2 to y=0)
     const isOnlineExit =
       gameMode === 'online' &&
       ghost.owner === localPlayerRef.current &&
@@ -973,6 +1117,28 @@ export const App: React.FC = () => {
     setWinner(ghost.owner);
     setWinReason('escaped');
     setGameStatus('gameover');
+
+    // Handle Campaign Level Victory on escape
+    if (gameModeRef.current === 'levels' && currentLevelRef.current && ghost.owner === 'p1') {
+      const finalMoves = levelMovesTakenRef.current + 1;
+      setLevelMovesTaken(finalMoves);
+      levelMovesTakenRef.current = finalMoves;
+      const result = saveLevelCompletion(
+        currentLevelRef.current.id,
+        finalMoves,
+        currentLevelRef.current.parMoves
+      );
+      const updatedProgress = getLevelProgress();
+      setLevelProgress(updatedProgress);
+      setLevelCompleteModalData({
+        isOpen: true,
+        level: currentLevelRef.current,
+        movesTaken: finalMoves,
+        starsEarned: result.stars,
+        isNewBest: result.isNewBest,
+        bestMoves: updatedProgress[currentLevelRef.current.id]?.bestMoves || finalMoves,
+      });
+    }
   };
 
   // AI Turn Execution
@@ -996,7 +1162,14 @@ export const App: React.FC = () => {
           y: 5 - g.y,
         }));
 
-      const aiDecision = calculateAIMove(aiGhosts, playerGhosts);
+      const currentLevelObj = currentLevelRef.current;
+      const currentMode = gameModeRef.current;
+
+      const aiDecision = calculateAIMove(aiGhosts, playerGhosts, {
+        difficulty: aiDifficulty,
+        puzzleBehavior: currentMode === 'levels' ? currentLevelObj?.aiBehavior : undefined,
+        playerSecretGhosts: mySecretGhostsRef.current,
+      });
       if (!aiDecision) return;
 
       const targetX = 5 - aiDecision.to.x;
@@ -1086,9 +1259,13 @@ export const App: React.FC = () => {
   };
 
   const handleRematch = () => {
-    if (gameMode === 'ai') {
+    if (gameMode === 'levels') {
+      if (currentLevel) {
+        handleSelectLevel(currentLevel);
+      }
+    } else if (gameMode === 'ai') {
       const nextP1 = shuffleGhostColors(mySecretGhostsRef.current);
-      handleStartAI(nextP1);
+      handleStartAI(nextP1, aiDifficulty);
     } else if (gameMode === 'pass-and-play') {
       const nextP1 = shuffleGhostColors(
         p1SavedGhostsRef.current.length > 0 ? p1SavedGhostsRef.current : mySecretGhostsRef.current
@@ -1126,8 +1303,12 @@ export const App: React.FC = () => {
           onStartPassAndPlay={handleStartPassAndPlay}
           onCreateOnlineRoom={handleCreateOnlineRoom}
           onJoinOnlineRoom={handleJoinOnlineRoom}
+          onOpenLevelSelect={() => setIsLevelSelectOpen(true)}
+          totalStars={getTotalStars(levelProgress)}
+          completedLevelsCount={getCompletedCount(levelProgress)}
           defaultGhosts={defaultGhosts}
           prefilledRoomCode={roomCode}
+          initialDifficulty={aiDifficulty}
         />
       )}
 
@@ -1150,8 +1331,13 @@ export const App: React.FC = () => {
             isMyTurn={isMyTurnNow}
             localPlayer={activeTurnPlayer}
             capturedGhosts={capturedGhosts}
+            currentLevel={currentLevel || undefined}
+            levelMovesTaken={levelMovesTaken}
+            aiDifficulty={aiDifficulty}
             onOpenRules={() => setIsRulesOpen(true)}
             onResetGame={handleResetGame}
+            onRestartLevel={handleRestartCurrentLevel}
+            onOpenLevelSelect={() => setIsLevelSelectOpen(true)}
           />
 
           <div className="board-layout-container">
@@ -1217,7 +1403,35 @@ export const App: React.FC = () => {
 
       <RulesModal isOpen={isRulesOpen} onClose={() => setIsRulesOpen(false)} />
 
-      {winner && winReason && (
+      {/* 50-Level Campaign Level Select Modal */}
+      <LevelSelectModal
+        isOpen={isLevelSelectOpen}
+        onClose={() => setIsLevelSelectOpen(false)}
+        onSelectLevel={handleSelectLevel}
+        currentLevelId={currentLevel?.id}
+      />
+
+      {/* Campaign Level Victory Modal */}
+      {levelCompleteModalData && (
+        <LevelCompleteModal
+          isOpen={levelCompleteModalData.isOpen}
+          level={levelCompleteModalData.level}
+          movesTaken={levelCompleteModalData.movesTaken}
+          starsEarned={levelCompleteModalData.starsEarned}
+          isNewBest={levelCompleteModalData.isNewBest}
+          bestMoves={levelCompleteModalData.bestMoves}
+          onNextLevel={handleNextLevel}
+          onReplayLevel={handleRestartCurrentLevel}
+          onOpenLevelSelect={() => {
+            setLevelCompleteModalData(null);
+            setIsLevelSelectOpen(true);
+          }}
+          onBackToMenu={handleResetGame}
+        />
+      )}
+
+      {/* Standard Game Over Modal (used for loss in levels, and standard wins/losses in AI, PVP) */}
+      {winner && winReason && !levelCompleteModalData?.isOpen && (
         <GameOverModal
           isOpen={gameStatus === 'gameover'}
           winner={winner}

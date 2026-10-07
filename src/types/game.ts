@@ -1,6 +1,7 @@
 export type GhostColor = 'blue' | 'red' | 'unknown';
 export type PlayerRole = 'p1' | 'p2';
-export type GameMode = 'online' | 'ai' | 'pass-and-play';
+export type GameMode = 'online' | 'ai' | 'pass-and-play' | 'levels';
+export type AIDifficulty = 'easy' | 'hard' | 'super_max';
 
 export interface Ghost {
   id: string;
@@ -19,6 +20,28 @@ export interface CapturedGhost {
   owner: PlayerRole;
   color: 'blue' | 'red';
   turnNumber: number;
+}
+
+export interface PuzzleLevel {
+  id: number;
+  name: string;
+  tier: 1 | 2 | 3 | 4;
+  tierName: string;
+  parMoves: number;
+  description: string;
+  hint: string;
+  playerGhosts: { id: string; color: 'blue' | 'red'; x: number; y: number }[];
+  aiGhosts: { id: string; color: 'blue' | 'red'; x: number; y: number }[];
+  initialCaptured?: CapturedGhost[];
+  aiBehavior?: 'deterministic' | 'rush_exit' | 'guard_doors' | 'hunt_blues' | 'passive';
+}
+
+export interface LevelProgress {
+  levelId: number;
+  completed: boolean;
+  stars: number; // 0, 1, 2, or 3
+  bestMoves: number;
+  unlocked: boolean;
 }
 
 export interface GameState {

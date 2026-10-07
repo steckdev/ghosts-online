@@ -1,17 +1,36 @@
 import React, { useState } from 'react';
-import type { GameMode, Ghost } from '../types/game';
-import { Users, Bot, Smartphone, Shuffle, Play, ArrowRight, Sparkles, PlusCircle, LogIn } from 'lucide-react';
+import type { GameMode, Ghost, AIDifficulty } from '../types/game';
+import {
+  Users,
+  Bot,
+  Smartphone,
+  Shuffle,
+  Play,
+  ArrowRight,
+  Sparkles,
+  PlusCircle,
+  LogIn,
+  Trophy,
+  Star,
+  Zap,
+  Shield,
+  Eye,
+} from 'lucide-react';
 import { GhostPiece } from './GhostPiece';
 import { soundManager } from '../audio/soundEffects';
 import { shuffleGhostColors } from '../utils/ghostUtils';
 
 interface LobbyScreenProps {
-  onStartAI: (initialGhosts: Ghost[]) => void;
+  onStartAI: (initialGhosts: Ghost[], difficulty: AIDifficulty) => void;
   onStartPassAndPlay: (initialGhosts: Ghost[]) => void;
   onCreateOnlineRoom: (initialGhosts: Ghost[]) => void;
   onJoinOnlineRoom: (code: string, initialGhosts: Ghost[]) => void;
+  onOpenLevelSelect: () => void;
+  totalStars?: number;
+  completedLevelsCount?: number;
   defaultGhosts: Ghost[];
   prefilledRoomCode?: string;
+  initialDifficulty?: AIDifficulty;
 }
 
 export const LobbyScreen: React.FC<LobbyScreenProps> = ({
@@ -19,10 +38,15 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
   onStartPassAndPlay,
   onCreateOnlineRoom,
   onJoinOnlineRoom,
+  onOpenLevelSelect,
+  totalStars = 0,
+  completedLevelsCount = 0,
   defaultGhosts,
   prefilledRoomCode = '',
+  initialDifficulty = 'hard',
 }) => {
-  const [selectedMode, setSelectedMode] = useState<GameMode>(prefilledRoomCode ? 'online' : 'ai');
+  const [selectedMode, setSelectedMode] = useState<GameMode>(prefilledRoomCode ? 'online' : 'levels');
+  const [aiDifficulty, setAiDifficulty] = useState<AIDifficulty>(initialDifficulty);
   const [onlineAction, setOnlineAction] = useState<'create' | 'join'>(prefilledRoomCode ? 'join' : 'create');
   const [joinCode, setJoinCode] = useState(prefilledRoomCode);
   const [ghosts, setGhosts] = useState<Ghost[]>(defaultGhosts);
@@ -59,8 +83,10 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
 
   const handleStartGame = () => {
     soundManager.playMove();
-    if (selectedMode === 'ai') {
-      onStartAI(ghosts);
+    if (selectedMode === 'levels') {
+      onOpenLevelSelect();
+    } else if (selectedMode === 'ai') {
+      onStartAI(ghosts, aiDifficulty);
     } else if (selectedMode === 'pass-and-play') {
       onStartPassAndPlay(ghosts);
     } else if (selectedMode === 'online') {
@@ -78,7 +104,7 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
 
   return (
     <div className="lobby-container">
-      {/* 80s Arcade Neon Spooky Title */}
+      {/* Arcade Neon Spooky Title */}
       <div className="lobby-header">
         <div className="arcade-badge">1982 ALEX RANDOLPH CLASSIC</div>
         <h1 className="lobby-title-glow">GHOSTS</h1>
@@ -150,6 +176,41 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
           <h2 className="card-title">2. Select Game Mode</h2>
 
           <div className="mode-options-list">
+            {/* 50 Dungeon Puzzle Levels */}
+            <div
+              className={`mode-card ${selectedMode === 'levels' ? 'selected' : ''}`}
+              onClick={() => setSelectedMode('levels')}
+            >
+              <div className="mode-icon-box campaign-box">
+                <Trophy size={24} />
+              </div>
+              <div className="mode-details">
+                <div className="mode-title-row">
+                  <h3>50 Dungeon Levels</h3>
+                  <span className="campaign-stars-badge">
+                    <Star size={13} fill="#ffd700" color="#ffd700" />
+                    <strong>{totalStars}</strong>/150
+                  </span>
+                </div>
+                <p>Puzzles with par moves, star ratings, and browser saving ({completedLevelsCount}/50 solved).</p>
+              </div>
+              <div className="mode-radio" />
+            </div>
+
+            {/* Campaign Sub-actions */}
+            {selectedMode === 'levels' && (
+              <div className="levels-quick-action-panel">
+                <button
+                  type="button"
+                  className="open-level-grid-btn"
+                  onClick={onOpenLevelSelect}
+                >
+                  <Star size={15} fill="#ffd700" color="#ffd700" />
+                  <span>Browse All 50 Levels Grid →</span>
+                </button>
+              </div>
+            )}
+
             {/* Solo vs AI */}
             <div
               className={`mode-card ${selectedMode === 'ai' ? 'selected' : ''}`}
@@ -160,10 +221,59 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
               </div>
               <div className="mode-details">
                 <h3>Single Player vs AI</h3>
-                <p>Play instantly against a deceptive computer ghost AI.</p>
+                <p>Play against a computer ghost AI with customizable intellect.</p>
               </div>
               <div className="mode-radio" />
             </div>
+
+            {/* AI Difficulty Selector */}
+            {selectedMode === 'ai' && (
+              <div className="difficulty-picker-panel">
+                <div className="difficulty-label">Select AI Intellect:</div>
+                <div className="difficulty-buttons-row">
+                  <button
+                    type="button"
+                    className={`difficulty-pill ${aiDifficulty === 'easy' ? 'active easy' : ''}`}
+                    onClick={() => {
+                      soundManager.playSelect();
+                      setAiDifficulty('easy');
+                    }}
+                  >
+                    <Shield size={14} />
+                    <span>Easy</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className={`difficulty-pill ${aiDifficulty === 'hard' ? 'active hard' : ''}`}
+                    onClick={() => {
+                      soundManager.playSelect();
+                      setAiDifficulty('hard');
+                    }}
+                  >
+                    <Zap size={14} />
+                    <span>Hard</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className={`difficulty-pill ${aiDifficulty === 'super_max' ? 'active super-max' : ''}`}
+                    onClick={() => {
+                      soundManager.playSelect();
+                      setAiDifficulty('super_max');
+                    }}
+                  >
+                    <Eye size={14} />
+                    <span>Super Max</span>
+                  </button>
+                </div>
+                <div className="difficulty-description">
+                  {aiDifficulty === 'easy' && 'Casual: Wanders casually, falls for bluffs, randomized tie-breaks.'}
+                  {aiDifficulty === 'hard' && 'Tactical: Evaluates exit danger, uses Red bluffs, breaks ties dynamically.'}
+                  {aiDifficulty === 'super_max' && 'Omniscient: Sees your secret colors! Hunts Blue ghosts, avoids Red poison.'}
+                </div>
+              </div>
+            )}
 
             {/* PeerJS Online Multiplayer */}
             <div
@@ -246,7 +356,9 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({
           <button className="primary-action-btn start-game-btn" onClick={handleStartGame}>
             <Play size={20} />
             <span>
-              {selectedMode === 'online'
+              {selectedMode === 'levels'
+                ? 'Play Dungeon Levels →'
+                : selectedMode === 'online'
                 ? onlineAction === 'create'
                   ? 'Generate Room & Host →'
                   : 'Connect & Join Room →'

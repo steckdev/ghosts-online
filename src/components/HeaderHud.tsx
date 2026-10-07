@@ -1,6 +1,20 @@
 import React, { useState } from 'react';
-import type { PlayerRole, GameMode, CapturedGhost } from '../types/game';
-import { Volume2, VolumeX, HelpCircle, Copy, Check, Users, Bot, LogOut, AlertTriangle } from 'lucide-react';
+import type { PlayerRole, GameMode, CapturedGhost, PuzzleLevel, AIDifficulty } from '../types/game';
+import {
+  Volume2,
+  VolumeX,
+  HelpCircle,
+  Copy,
+  Check,
+  Users,
+  Bot,
+  LogOut,
+  AlertTriangle,
+  Trophy,
+  RotateCcw,
+  Grid,
+  Lightbulb,
+} from 'lucide-react';
 import { soundManager } from '../audio/soundEffects';
 
 interface HeaderHudProps {
@@ -9,8 +23,13 @@ interface HeaderHudProps {
   isMyTurn: boolean;
   localPlayer: PlayerRole;
   capturedGhosts: CapturedGhost[];
+  currentLevel?: PuzzleLevel;
+  levelMovesTaken?: number;
+  aiDifficulty?: AIDifficulty;
   onOpenRules: () => void;
   onResetGame: () => void;
+  onRestartLevel?: () => void;
+  onOpenLevelSelect?: () => void;
 }
 
 export const HeaderHud: React.FC<HeaderHudProps> = ({
@@ -19,12 +38,18 @@ export const HeaderHud: React.FC<HeaderHudProps> = ({
   isMyTurn,
   localPlayer,
   capturedGhosts,
+  currentLevel,
+  levelMovesTaken = 0,
+  aiDifficulty,
   onOpenRules,
   onResetGame,
+  onRestartLevel,
+  onOpenLevelSelect,
 }) => {
   const [copied, setCopied] = useState(false);
   const [muted, setMuted] = useState(soundManager.isMuted());
   const [showAbandonConfirm, setShowAbandonConfirm] = useState(false);
+  const [showHint, setShowHint] = useState(false);
 
   const handleToggleMute = () => {
     const next = soundManager.toggleMute();
@@ -74,6 +99,39 @@ export const HeaderHud: React.FC<HeaderHudProps> = ({
         </div>
 
         <div className="header-actions">
+          {gameMode === 'levels' && onRestartLevel && (
+            <button
+              className="hud-icon-btn restart-level-btn"
+              onClick={onRestartLevel}
+              title="Restart Level"
+              aria-label="Restart Level"
+            >
+              <RotateCcw size={18} />
+            </button>
+          )}
+
+          {gameMode === 'levels' && onOpenLevelSelect && (
+            <button
+              className="hud-icon-btn grid-level-btn"
+              onClick={onOpenLevelSelect}
+              title="All 50 Levels"
+              aria-label="Select Level"
+            >
+              <Grid size={18} />
+            </button>
+          )}
+
+          {gameMode === 'levels' && currentLevel && (
+            <button
+              className={`hud-icon-btn hint-btn ${showHint ? 'hint-active' : ''}`}
+              onClick={() => setShowHint(!showHint)}
+              title="Puzzle Clue / Hint"
+              aria-label="Hint"
+            >
+              <Lightbulb size={18} />
+            </button>
+          )}
+
           <button
             className="hud-icon-btn mute-btn"
             onClick={handleToggleMute}
@@ -97,6 +155,18 @@ export const HeaderHud: React.FC<HeaderHudProps> = ({
       <div className="status-bar-row">
         {/* Room / Connection Badge */}
         <div className="room-badge">
+          {gameMode === 'levels' && currentLevel && (
+            <div className="room-static-pill campaign-pill">
+              <Trophy size={15} className="campaign-icon" />
+              <div className="room-info">
+                <span className="room-title">Lvl {currentLevel.id}: {currentLevel.name}</span>
+                <span className="conn-status campaign-sub">
+                  Moves: <strong className="moves-counter-hud">{levelMovesTaken}</strong> / Par: {currentLevel.parMoves}
+                </span>
+              </div>
+            </div>
+          )}
+
           {gameMode === 'online' && roomCode && (
             <button
               className="room-copy-pill"
@@ -122,7 +192,9 @@ export const HeaderHud: React.FC<HeaderHudProps> = ({
             <div className="room-static-pill">
               <Bot size={15} className="ai-icon" />
               <div className="room-info">
-                <span className="room-title">vs Phantom AI</span>
+                <span className="room-title">
+                  vs AI ({aiDifficulty === 'super_max' ? 'Super Max' : aiDifficulty === 'hard' ? 'Hard' : 'Easy'})
+                </span>
                 <span className="conn-status">Solo Match</span>
               </div>
             </div>
@@ -163,6 +235,21 @@ export const HeaderHud: React.FC<HeaderHudProps> = ({
           </span>
         </div>
       </div>
+
+      {/* Campaign Level Hint Banner */}
+      {showHint && currentLevel && (
+        <div className="campaign-hint-banner">
+          <div className="hint-content">
+            <Lightbulb size={16} className="hint-banner-bulb" />
+            <span className="hint-text">
+              <strong>Clue:</strong> {currentLevel.hint}
+            </span>
+          </div>
+          <button className="hint-dismiss-btn" onClick={() => setShowHint(false)}>
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Abandon Match Confirmation Modal */}
       {showAbandonConfirm && (
