@@ -12,6 +12,7 @@ import { getValidMovesForGhost, calculateAIMove } from '../services/aiService';
 import { soundManager } from '../audio/soundEffects';
 import { moveLogger } from '../utils/moveLogger';
 import { createInitialOpponentGhosts } from '../utils/ghostUtils';
+import { evaluateWinConditions } from '../utils/winConditions';
 import type { SavedGameSession } from '../utils/sessionStorage';
 
 interface UseGameStateProps {
@@ -131,89 +132,27 @@ export function useGameState({
   // Universal Win Condition Evaluator
   const checkWinConditions = useCallback(
     (currentCaptured: CapturedGhost[], currentGhosts: Ghost[]): boolean => {
-      let winningPlayer: PlayerRole | null = null;
-      let winReasonDetermined: WinReason | null = null;
+      const result = evaluateWinConditions({
+        gameMode,
+        currentCaptured,
+        currentGhosts,
+        currentLevel: currentLevelRef.current,
+        aiSecretColors: aiSecretColorsRef.current,
+      });
 
-      // 1. Escaped ghost check (immediate victory)
-      const escaped = currentGhosts.find((g) => g.hasEscaped);
-      if (escaped) {
-        winningPlayer = escaped.owner;
-        winReasonDetermined = 'escaped';
-      }
-
-      // 2. 4 Blue Ghosts captured
-      if (!winningPlayer) {
-        const p1CapturedBlueFromP2 = currentCaptured.filter((g) => g.owner === 'p2' && g.color === 'blue').length;
-        const p2CapturedBlueFromP1 = currentCaptured.filter((g) => g.owner === 'p1' && g.color === 'blue').length;
-
-        if (p1CapturedBlueFromP2 >= 4) {
-          winningPlayer = 'p1';
-          winReasonDetermined = 'captured_all_blue';
-        } else if (p2CapturedBlueFromP1 >= 4) {
-          winningPlayer = 'p2';
-          winReasonDetermined = 'captured_all_blue';
-        }
-      }
-
-      // 3. 4 Red Ghosts captured (Poison Pill trap -> opponent wins)
-      if (!winningPlayer) {
-        const p1CapturedRedFromP2 = currentCaptured.filter((g) => g.owner === 'p2' && g.color === 'red').length;
-        const p2CapturedRedFromP1 = currentCaptured.filter((g) => g.owner === 'p1' && g.color === 'red').length;
-
-        if (p1CapturedRedFromP2 >= 4) {
-          winningPlayer = 'p2';
-          winReasonDetermined = 'captured_all_red';
-        } else if (p2CapturedRedFromP1 >= 4) {
-          winningPlayer = 'p1';
-          winReasonDetermined = 'captured_all_red';
-        }
-      }
-
-      // 4. Board Elimination Check for custom levels & puzzle scenarios:
-      if (!winningPlayer) {
-        const activeAiGhosts = currentGhosts.filter((g) => g.owner === 'p2' && !g.isCaptured && !g.hasEscaped);
-        const activeP1Ghosts = currentGhosts.filter((g) => g.owner === 'p1' && !g.isCaptured && !g.hasEscaped);
-
-        const activeAiBlueGhosts = activeAiGhosts.filter(
-          (g) => g.color === 'blue' || aiSecretColorsRef.current[g.id] === 'blue'
-        );
-        const activeP1BlueGhosts = activeP1Ghosts.filter((g) => g.color === 'blue');
-
-        const currentLvl = currentLevelRef.current;
-        const p1StartedWithBlue =
-          gameMode === 'levels'
-            ? (currentLvl ? currentLvl.playerGhosts.some((g) => g.color === 'blue') : false)
-            : true;
-        const aiStartedWithBlue =
-          gameMode === 'levels'
-            ? (currentLvl ? currentLvl.aiGhosts.some((g) => g.color === 'blue') : false)
-            : true;
-
-        // Player 1 defeated: 0 active ghosts left, or all player blue ghosts captured
-        if (activeP1Ghosts.length === 0 || (p1StartedWithBlue && activeP1BlueGhosts.length === 0)) {
-          winningPlayer = 'p2';
-          winReasonDetermined = 'captured_all_blue';
-        }
-        // AI defeated: 0 active ghosts left, or all AI blue ghosts captured (only if AI started with blue)
-        else if (activeAiGhosts.length === 0 || (aiStartedWithBlue && activeAiBlueGhosts.length === 0)) {
-          winningPlayer = 'p1';
-          winReasonDetermined = 'captured_all_blue';
-        }
-      }
-
-      if (winningPlayer && winReasonDetermined) {
+      if (result.hasWon && result.winningPlayer && result.winReason) {
         if (aiTimeoutRef.current) {
           clearTimeout(aiTimeoutRef.current);
           aiTimeoutRef.current = null;
         }
 
-        setWinner(winningPlayer);
-        setWinReason(winReasonDetermined);
+        setWinner(result.winningPlayer);
+        setWinReason(result.winReason);
         setGameStatus('gameover');
 
-        moveLogger.finishSession(winningPlayer, winReasonDetermined);
+        moveLogger.finishSession(result.winningPlayer, result.winReason);
 
-        if (gameMode === 'levels' && winningPlayer === 'p1' && onLevelWon) {
+        if (gameMode === 'levels' && result.winningPlayer === 'p1' && onLevelWon) {
           onLevelWon(turnNumberRef.current);
         }
         return true;
