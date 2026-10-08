@@ -12,7 +12,6 @@ import { getValidMovesForGhost, calculateAIMove } from '../services/aiService';
 import { soundManager } from '../audio/soundEffects';
 import { moveLogger } from '../utils/moveLogger';
 import { createInitialOpponentGhosts } from '../utils/ghostUtils';
-import { evaluateWinConditions } from '../utils/winConditions';
 import type { SavedGameSession } from '../utils/sessionStorage';
 
 interface UseGameStateProps {
@@ -56,15 +55,9 @@ export function useGameState({
 
   const aiSecretColorsRef = useRef<Record<string, 'blue' | 'red'>>({});
   const aiTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastAIMoveRef = useRef<{
-    ghostId: string;
-    from: { x: number; y: number };
-    to: { x: number; y: number };
-  } | null>(null);
 
   const [capturedGhosts, setCapturedGhosts] = useState<CapturedGhost[]>(() => initialSession?.capturedGhosts || []);
   const capturedGhostsRef = useRef<CapturedGhost[]>(initialSession?.capturedGhosts || []);
-  const currentLevelRef = useRef<PuzzleLevel | null>(currentLevel || null);
 
   const [selectedGhostId, setSelectedGhostId] = useState<string | null>(null);
   const [validMoves, setValidMoves] = useState<{ x: number; y: number; isExit?: boolean }[]>([]);
@@ -115,10 +108,6 @@ export function useGameState({
     turnNumberRef.current = turnNumber;
   }, [turnNumber]);
 
-  useEffect(() => {
-    currentLevelRef.current = currentLevel || null;
-  }, [currentLevel]);
-
   // Clean up any pending AI timeouts on unmount
   useEffect(() => {
     return () => {
@@ -132,27 +121,88 @@ export function useGameState({
   // Universal Win Condition Evaluator
   const checkWinConditions = useCallback(
     (currentCaptured: CapturedGhost[], currentGhosts: Ghost[]): boolean => {
-      const result = evaluateWinConditions({
-        gameMode,
-        currentCaptured,
-        currentGhosts,
-        currentLevel: currentLevelRef.current,
-        aiSecretColors: aiSecretColorsRef.current,
-      });
+      let winningPlayer: PlayerRole | null = null;
+      let winReasonDetermined: WinReason | null = null;
 
-      if (result.hasWon && result.winningPlayer && result.winReason) {
+      // 1. Escaped ghost check (immediate victory)
+      const escaped = currentGhosts.find((g) => g.hasEscaped);
+      if (escaped) {
+        winningPlayer = escaped.owner;
+        winReasonDetermined = 'escaped';
+      }
+
+      // 2. 4 Blue Ghosts captured
+      if (!winningPlayer) {
+        const p1CapturedBlueFromP2 = currentCaptured.filter((g) => g.owner === 'p2' && g.color === 'blue').length;
+        const p2CapturedBlueFromP1 = currentCaptured.filter((g) => g.owner === 'p1' && g.color === 'blue').length;
+
+        if (p1CapturedBlueFromP2 >= 4) {
+          winningPlayer = 'p1';
+          winReasonDetermined = 'captured_all_blue';
+        } else if (p2CapturedBlueFromP1 >= 4) {
+          winningPlayer = 'p2';
+          winReasonDetermined = 'captured_all_blue';
+        }
+      }
+
+      // 3. 4 Red Ghosts captured (Poison Pill trap -> opponent wins)
+      if (!winningPlayer) {
+        const p1CapturedRedFromP2 = currentCaptured.filter((g) => g.owner === 'p2' && g.color === 'red').length;
+        const p2CapturedRedFromP1 = currentCaptured.filter((g) => g.owner === 'p1' && g.color === 'red').length;
+
+        if (p1CapturedRedFromP2 >= 4) {
+          winningPlayer = 'p2';
+          winReasonDetermined = 'captured_all_red';
+        } else if (p2CapturedRedFromP1 >= 4) {
+          winningPlayer = 'p1';
+          winReasonDetermined = 'captured_all_red';
+        }
+      }
+
+      // 4. Board Elimination Check for custom levels & puzzle scenarios:
+      if (!winningPlayer) {
+        const activeAiGhosts = currentGhosts.filter((g) => g.owner === 'p2' && !g.isCaptured && !g.hasEscaped);
+        const activeP1Ghosts = currentGhosts.filter((g) => g.owner === 'p1' && !g.isCaptured && !g.hasEscaped);
+
+        const activeAiBlueGhosts = activeAiGhosts.filter(
+          (g) => g.color === 'blue' || aiSecretColorsRef.current[g.id] === 'blue'
+        );
+        const activeP1BlueGhosts = activeP1Ghosts.filter((g) => g.color === 'blue');
+
+        const p1StartedWithBlue =
+          gameMode === 'levels'
+            ? (currentLevel?.playerGhosts.some((g) => g.color === 'blue') ?? true)
+            : true;
+        const aiStartedWithBlue =
+          gameMode === 'levels'
+            ? (currentLevel?.aiGhosts.some((g) => g.color === 'blue') ?? true)
+            : true;
+
+        // Player 1 defeated: 0 active ghosts left, or all player blue ghosts captured
+        if (activeP1Ghosts.length === 0 || (p1StartedWithBlue && activeP1BlueGhosts.length === 0)) {
+          winningPlayer = 'p2';
+          winReasonDetermined = 'captured_all_blue';
+        }
+        // AI defeated: 0 active ghosts left, or all AI blue ghosts captured
+        else if (activeAiGhosts.length === 0 || (aiStartedWithBlue && activeAiBlueGhosts.length === 0)) {
+          winningPlayer = 'p1';
+          winReasonDetermined = 'captured_all_blue';
+        }
+      }
+
+      if (winningPlayer && winReasonDetermined) {
         if (aiTimeoutRef.current) {
           clearTimeout(aiTimeoutRef.current);
           aiTimeoutRef.current = null;
         }
 
-        setWinner(result.winningPlayer);
-        setWinReason(result.winReason);
+        setWinner(winningPlayer);
+        setWinReason(winReasonDetermined);
         setGameStatus('gameover');
 
-        moveLogger.finishSession(result.winningPlayer, result.winReason);
+        moveLogger.finishSession(winningPlayer, winReasonDetermined);
 
-        if (gameMode === 'levels' && result.winningPlayer === 'p1' && onLevelWon) {
+        if (gameMode === 'levels' && winningPlayer === 'p1' && onLevelWon) {
           onLevelWon(turnNumberRef.current);
         }
         return true;
@@ -201,8 +251,6 @@ export function useGameState({
         difficulty: aiDifficulty,
         puzzleBehavior: gameMode === 'levels' ? currentLevel?.aiBehavior : undefined,
         playerSecretGhosts: mySecretGhostsRef.current,
-        capturedGhosts: capturedGhostsRef.current,
-        lastAIMove: lastAIMoveRef.current,
       });
 
       if (!aiDecision) {
@@ -297,12 +345,6 @@ export function useGameState({
         isCapture: !!capturedPlayerGhost,
         capturedColor: capturedPlayerGhost ? (capturedPlayerGhost.color as 'blue' | 'red') : undefined,
       });
-
-      lastAIMoveRef.current = {
-        ghostId: aiDecision.ghostId,
-        from: aiDecision.from,
-        to: aiDecision.to,
-      };
 
       const hasWon = checkWinConditions(nextCaptured, updatedGhosts);
       if (!hasWon) {
@@ -493,7 +535,6 @@ export function useGameState({
       validMoves,
       gameMode,
       localPlayer,
-      isPassShieldActive,
       onIncrementLevelMove,
       onSendNetworkMove,
       checkWinConditions,
@@ -558,7 +599,6 @@ export function useGameState({
         clearTimeout(aiTimeoutRef.current);
         aiTimeoutRef.current = null;
       }
-      lastAIMoveRef.current = null;
       setWinner(undefined);
       setWinReason(undefined);
       setSelectedGhostId(null);
@@ -580,7 +620,6 @@ export function useGameState({
   const loadLevel = useCallback(
     (level: PuzzleLevel) => {
       resetGameCleanly('playing');
-      currentLevelRef.current = level;
 
       const initCaptured = level.initialCaptured || [];
       setCapturedGhosts(initCaptured);
@@ -589,8 +628,6 @@ export function useGameState({
       const p1Ghosts: Ghost[] = level.playerGhosts.map((g) => ({
         ...g,
         owner: 'p1' as const,
-        isCaptured: false,
-        hasEscaped: false,
       }));
       setMySecretGhosts(p1Ghosts);
       mySecretGhostsRef.current = p1Ghosts;
@@ -604,8 +641,6 @@ export function useGameState({
           color: 'unknown' as const,
           x: g.x,
           y: g.y,
-          isCaptured: false,
-          hasEscaped: false,
         };
       });
 
@@ -631,19 +666,7 @@ export function useGameState({
       resetGameCleanly('playing');
       setAiDifficulty(difficulty);
 
-      const p1Slots = [
-        { x: 1, y: 0 }, { x: 2, y: 0 }, { x: 3, y: 0 }, { x: 4, y: 0 },
-        { x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 1 }, { x: 4, y: 1 },
-      ];
-
-      const p1Ghosts = initialGhosts.map((g, idx) => ({
-        ...g,
-        owner: 'p1' as const,
-        x: p1Slots[idx]?.x ?? g.x,
-        y: p1Slots[idx]?.y ?? g.y,
-        isCaptured: false,
-        hasEscaped: false,
-      }));
+      const p1Ghosts = initialGhosts.map((g) => ({ ...g, owner: 'p1' as const }));
       setMySecretGhosts(p1Ghosts);
       mySecretGhostsRef.current = p1Ghosts;
 
@@ -689,21 +712,9 @@ export function useGameState({
   const startPassAndPlay = useCallback(
     (p1Ghosts: Ghost[], p2Ghosts: Ghost[]) => {
       resetGameCleanly('playing');
-      const p1Slots = [
-        { x: 1, y: 0 }, { x: 2, y: 0 }, { x: 3, y: 0 }, { x: 4, y: 0 },
-        { x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 1 }, { x: 4, y: 1 },
-      ];
-      const normalizedP1 = p1Ghosts.map((g, idx) => ({
-        ...g,
-        owner: 'p1' as const,
-        x: p1Slots[idx]?.x ?? g.x,
-        y: p1Slots[idx]?.y ?? g.y,
-        isCaptured: false,
-        hasEscaped: false,
-      }));
-      setMySecretGhosts(normalizedP1);
-      mySecretGhostsRef.current = normalizedP1;
-      const initialBoard = [...normalizedP1, ...p2Ghosts];
+      setMySecretGhosts(p1Ghosts);
+      mySecretGhostsRef.current = p1Ghosts;
+      const initialBoard = [...p1Ghosts, ...p2Ghosts];
       setGhosts(initialBoard);
       ghostsRef.current = initialBoard;
 

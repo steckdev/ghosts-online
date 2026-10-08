@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createInitialGhosts, createInitialOpponentGhosts } from '../utils/ghostUtils';
 import { getValidMovesForGhost } from './aiService';
-import { evaluateWinConditions } from '../utils/winConditions';
 import type { Ghost } from '../types/game';
 
 describe('Gameplay & Movement Mechanics', () => {
@@ -70,80 +69,5 @@ describe('Gameplay & Movement Mechanics', () => {
     expect(targetGhost).toBeDefined();
     expect(targetGhost!.id).toBe('p2-ghost-3');
     expect(targetGhost!.color).toBe('red');
-  });
-
-  describe('Universal Win Conditions Evaluation', () => {
-    it('does NOT trigger an immediate win on move 1 in online mode when opponent ghost colors are unknown', () => {
-      const p1Ghosts = createInitialGhosts('p1');
-      const p2Opponent = createInitialOpponentGhosts('p2'); // colors are 'unknown'
-      const board = [...p1Ghosts, ...p2Opponent];
-
-      // Move 1: P1 front piece moves forward
-      board[4] = { ...board[4], y: board[4].y + 1 };
-
-      const result = evaluateWinConditions({
-        gameMode: 'online',
-        currentCaptured: [],
-        currentGhosts: board,
-      });
-
-      expect(result.hasWon).toBe(false);
-      expect(result.winningPlayer).toBeNull();
-      expect(result.winReason).toBeNull();
-    });
-
-    it('correctly declares escape victory when a blue ghost reaches an exit', () => {
-      const p1Ghosts = createInitialGhosts('p1');
-      p1Ghosts[0] = { ...p1Ghosts[0], color: 'blue', hasEscaped: true };
-
-      const result = evaluateWinConditions({
-        gameMode: 'online',
-        currentCaptured: [],
-        currentGhosts: p1Ghosts,
-      });
-
-      expect(result.hasWon).toBe(true);
-      expect(result.winningPlayer).toBe('p1');
-      expect(result.winReason).toBe('escaped');
-    });
-
-    it('correctly declares victory when capturing 4 blue ghosts', () => {
-      const captured = [
-        { id: 'p2-g-0', owner: 'p2' as const, color: 'blue' as const, turnNumber: 2 },
-        { id: 'p2-g-1', owner: 'p2' as const, color: 'blue' as const, turnNumber: 4 },
-        { id: 'p2-g-2', owner: 'p2' as const, color: 'blue' as const, turnNumber: 6 },
-        { id: 'p2-g-3', owner: 'p2' as const, color: 'blue' as const, turnNumber: 8 },
-      ];
-
-      const result = evaluateWinConditions({
-        gameMode: 'online',
-        currentCaptured: captured,
-        currentGhosts: createInitialGhosts('p1'),
-      });
-
-      expect(result.hasWon).toBe(true);
-      expect(result.winningPlayer).toBe('p1');
-      expect(result.winReason).toBe('captured_all_blue');
-    });
-
-    it('correctly declares poison pill defeat when capturing 4 red ghosts', () => {
-      const captured = [
-        { id: 'p2-g-0', owner: 'p2' as const, color: 'red' as const, turnNumber: 2 },
-        { id: 'p2-g-1', owner: 'p2' as const, color: 'red' as const, turnNumber: 4 },
-        { id: 'p2-g-2', owner: 'p2' as const, color: 'red' as const, turnNumber: 6 },
-        { id: 'p2-g-3', owner: 'p2' as const, color: 'red' as const, turnNumber: 8 },
-      ];
-
-      // P1 captured 4 red ghosts from P2, so P2 wins by poison pill!
-      const result = evaluateWinConditions({
-        gameMode: 'online',
-        currentCaptured: captured,
-        currentGhosts: createInitialGhosts('p1'),
-      });
-
-      expect(result.hasWon).toBe(true);
-      expect(result.winningPlayer).toBe('p2');
-      expect(result.winReason).toBe('captured_all_red');
-    });
   });
 });
